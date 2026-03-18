@@ -1,0 +1,55 @@
+{#
+  login.html
+  - Simple "login" page for the prototype.
+  - No real authentication yet: the button just takes you to /home.
+#}
+{% extends "base.html" %}
+{% set title = "Login • Seed Validation" %}
+
+{% block content %}
+<section class="grid-2">
+  <div class="card">
+    <h1 class="h1">Welcome</h1>
+    <p class="muted">
+      This is a prototype UI for the <b>Carrot Seed Planting Validation</b> project.
+      Use the navigation bar to explore pages.
+    </p>
+
+    <div class="divider"></div>
+
+    <form class="form" onsubmit="return false;">
+      <label class="label">Email (demo)</label>
+      <input class="input" type="email" placeholder="you@ucmerced.edu" />
+
+      <label class="label">Password (demo)</label>
+      <input class="input" type="password" placeholder="••••••••" />
+
+      <div class="row">
+        <a class="btn primary" href="{{ url_for('home') }}">Login</a>
+        <a class="btn" href="{{ url_for('live') }}">Skip to Live</a>
+      </div>
+
+      <p class="small muted">
+        Note: Authentication is not implemented in this prototype.
+      </p>
+    </form>
+  </div>
+
+  <div class="card accent">
+    <h2 class="h2">What this demo shows</h2>
+    <ul class="list">
+      <li>Live “per-tube” seed count buckets: 0, 1, 2, &gt;2</li>
+      <li>Simple metrics summary for quick operator feedback</li>
+      <li>Heatmap visualization (simulated)</li>
+      <li>Analytics and validation pages for review</li>
+    </ul>
+
+    <div class="callout">
+      <div class="callout-title">Tip</div>
+      <div class="callout-text">
+        Go to <b>Live</b> to see real-time updates (mocked) pulled from <code>/data</code>.
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

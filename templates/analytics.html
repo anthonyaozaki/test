@@ -1,0 +1,66 @@
+{#
+  analytics.html
+  - Uses the `data` summary dict passed from app.py.
+  - This is a *static* summary in your current backend, but later you can compute it from stored runs.
+#}
+{% extends "base.html" %}
+{% set title = "Analytics • Seed Validation" %}
+
+{% block content %}
+<div class="page-title">
+  <h1 class="h1">Analytics</h1>
+  <p class="muted">High-level distribution summary (placeholder data).</p>
+</div>
+
+<section class="grid-4">
+  <div class="card">
+    <div class="kpi-label">Zero (0)</div>
+    <div class="kpi-value">{{ data.zero }}%</div>
+    <div class="kpi-note muted">Skips</div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Single (1)</div>
+    <div class="kpi-value">{{ data.single }}%</div>
+    <div class="kpi-note muted">Ideal drops</div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Double (2)</div>
+    <div class="kpi-value">{{ data.double }}%</div>
+    <div class="kpi-note muted">Double drops</div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Multiple (3+)</div>
+    <div class="kpi-value">{{ data.multiple }}%</div>
+    <div class="kpi-note muted">Overdrops</div>
+  </div>
+</section>
+
+<section class="grid-2 mt">
+  <div class="card">
+    <h2 class="h2">Interpretation</h2>
+    <ul class="list">
+      <li><b>Single (1)</b> should be as high as possible.</li>
+      <li><b>Zero (0)</b> is a missed seed (gap).</li>
+      <li><b>Double (2)</b> wastes seed and can cause crowding.</li>
+      <li><b>Multiple (3+)</b> is a severe overdrop event.</li>
+    </ul>
+
+    <div class="callout">
+      <div class="callout-title">Operator action</div>
+      <div class="callout-text">
+        If 0 or 3+ rises for a tube, the crew may check the tube/chute,
+        adjust seed singulation, or reduce vibration/bounce.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Next steps (for your project)</h2>
+    <ol class="list">
+      <li>Replace placeholder summary with computed stats from saved runs.</li>
+      <li>Add per-tube breakdown and trend lines.</li>
+      <li>Add export (CSV) for growers/QA reporting.</li>
+    </ol>
+  </div>
+</section>
+{% endblock %}

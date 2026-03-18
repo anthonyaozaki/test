@@ -1,0 +1,68 @@
+{#
+  upload.html
+  - Mock upload page (no backend upload route in your current app.py).
+  - Keep this for your design review to show planned workflow.
+#}
+{% extends "base.html" %}
+{% set title = "Upload • Seed Validation" %}
+
+{% block content %}
+<div class="page-title">
+  <h1 class="h1">Upload</h1>
+  <p class="muted">Prototype page for uploading a run video or dataset (not wired to backend yet).</p>
+</div>
+
+<section class="grid-2">
+  <div class="card">
+    <h2 class="h2">Upload a run</h2>
+    <p class="muted">In the real system this could accept video clips or CSV sensor logs.</p>
+
+    <div class="divider"></div>
+
+    <form class="form" onsubmit="return false;">
+      <label class="label">Run name</label>
+      <input class="input" placeholder="e.g., Field 7 • Bed A • 03-01-2026" />
+
+      <label class="label">File (demo)</label>
+      <input class="input" type="file" />
+
+      <label class="label">Notes</label>
+      <textarea class="textarea" rows="4" placeholder="Optional notes for this run..."></textarea>
+
+      <div class="row">
+        <button class="btn primary" type="button" onclick="demoUpload()">Upload (demo)</button>
+        <a class="btn" href="{{ url_for('live') }}">Go to Live</a>
+      </div>
+
+      <p id="uploadMsg" class="small muted mt"></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">What happens after upload?</h2>
+    <ul class="list">
+      <li>Parse the uploaded file</li>
+      <li>Run detection + bucketing per tube: 0, 1, 2, &gt;2</li>
+      <li>Compute summary stats and accuracy against ground truth (if available)</li>
+      <li>Store results for analytics and exporting</li>
+    </ul>
+
+    <div class="callout">
+      <div class="callout-title">Implementation note</div>
+      <div class="callout-text">
+        When you add a real upload route, you can POST to Flask (or to a separate API) and then
+        redirect to <b>Analytics</b> or <b>Validation</b> for results.
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function demoUpload() {
+    const el = document.getElementById("uploadMsg");
+    el.textContent = "Demo only: upload is not connected to the backend yet.";
+  }
+</script>
+{% endblock %}

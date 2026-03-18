@@ -1,0 +1,235 @@
+{#
+  index.html (Live)
+  - Pulls JSON from /data every second.
+  - Displays:
+      * per-tube seed counts
+      * bucket metrics
+      * small history chart (last 20 points)
+      * heatmap grid
+#}
+{% extends "base.html" %}
+{% set title = "Live • Seed Validation" %}
+
+{% block content %}
+<div class="page-title">
+  <h1 class="h1">Live View</h1>
+  <p class="muted">Real-time simulated data from <code>/data</code>. Updates every 1 second.</p>
+</div>
+
+<section class="grid-4">
+  <div class="card kpi">
+    <div class="kpi-label">Skip (0)</div>
+    <div id="kpiSkip" class="kpi-value">0</div>
+    <div class="kpi-note muted">Tube reported 0</div>
+  </div>
+  <div class="card kpi">
+    <div class="kpi-label">Ideal (1)</div>
+    <div id="kpiIdeal" class="kpi-value">0</div>
+    <div class="kpi-note muted">Tube reported 1</div>
+  </div>
+  <div class="card kpi">
+    <div class="kpi-label">Double (2)</div>
+    <div id="kpiDouble" class="kpi-value">0</div>
+    <div class="kpi-note muted">Tube reported 2</div>
+  </div>
+  <div class="card kpi">
+    <div class="kpi-label">Overdrop (&gt;2)</div>
+    <div id="kpiOver" class="kpi-value">0</div>
+    <div class="kpi-note muted">Tube reported 3+</div>
+  </div>
+</section>
+
+<section class="grid-2 mt">
+  <div class="card">
+    <div class="row between">
+      <h2 class="h2">Per-tube counts</h2>
+      <div class="row">
+        <div class="pill" id="liveStatus">Connecting…</div>
+    
+        <button id="pauseBtn" class="btn">Pause Monitoring</button>
+        <button id="resumeBtn" class="btn" style="display:none;">Resume Monitoring</button>
+        <button id="stopBtn" class="btn bad">Emergency Stop</button>
+    </div>
+  </div>
+
+    <table class="table" aria-label="Tube counts table">
+      <thead>
+        <tr>
+          <th>Tube</th>
+          <th>Seed Count</th>
+          <th>Bucket</th>
+        </tr>
+      </thead>
+      <tbody id="tubeTable"></tbody>
+    </table>
+
+    <p class="small muted mt">
+      Buckets: 0 = <b>skip</b>, 1 = <b>ideal</b>, 2 = <b>double</b>, 3+ = <b>overdrop</b>
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Total seeds over time</h2>
+    <p class="muted small">Last 20 updates (1 second interval).</p>
+    <canvas id="historyChart" width="700" height="260" class="canvas"></canvas>
+  </div>
+</section>
+
+<section class="card mt">
+  <div class="row between">
+    <h2 class="h2">Heatmap (simulated grid)</h2>
+    <div class="muted small">8 × 14 cells</div>
+  </div>
+  <div id="heatmap" class="heatmap" aria-label="Heatmap grid"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // ----------- Small helpers -----------
+
+  function bucketLabel(count) {
+    if (count === 0) return "skip";
+    if (count === 1) return "ideal";
+    if (count === 2) return "double";
+    return "overdrop";
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  // ----------- Chart (no libraries) -----------
+  // Draw a simple line chart on a <canvas>.
+  function drawHistory(canvas, points) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.clearRect(0, 0, w, h);
+
+    // Background grid
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#1f2a44"; // still "default", but used for visibility (safe)
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0, 0, w, h);
+
+    // Determine range
+    const values = points.map(p => p.total);
+    const minV = Math.min(...values, 0);
+    const maxV = Math.max(...values, 1);
+
+    // Padding
+    const pad = 30;
+    const innerW = w - pad * 2;
+    const innerH = h - pad * 2;
+
+    // Axes
+    ctx.strokeStyle = "#263353";
+    ctx.beginPath();
+    ctx.moveTo(pad, pad);
+    ctx.lineTo(pad, h - pad);
+    ctx.lineTo(w - pad, h - pad);
+    ctx.stroke();
+
+    // Line
+    if (points.length < 2) return;
+
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    points.forEach((p, i) => {
+      const x = pad + (i / (points.length - 1)) * innerW;
+      const t = (p.total - minV) / (maxV - minV || 1);
+      const y = (h - pad) - t * innerH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+
+    ctx.stroke();
+
+    // Labels (min/max)
+    ctx.fillStyle = "#9aa7c7";
+    ctx.font = "12px system-ui";
+    ctx.fillText(String(maxV), 6, pad + 4);
+    ctx.fillText(String(minV), 6, h - pad);
+  }
+
+  // ----------- Heatmap -----------
+  // Create a grid of divs; use lightness based on value.
+  function renderHeatmap(container, grid) {
+    container.innerHTML = "";
+    grid.flat().forEach(v => {
+      const cell = document.createElement("div");
+      cell.className = "heatcell";
+      // 0..3 -> background intensity
+      const intensity = Math.min(3, Math.max(0, v)) / 3;
+      // Use HSL for simple shading
+      cell.style.backgroundColor = `hsl(210, 60%, ${14 + intensity * 28}%)`;
+      cell.title = `Value: ${v}`;
+      cell.textContent = v;
+      container.appendChild(cell);
+    });
+  }
+
+  // ----------- Main live loop -----------
+  const tubeTable = document.getElementById("tubeTable");
+  const statusPill = document.getElementById("liveStatus");
+  const chart = document.getElementById("historyChart");
+  const heatmapEl = document.getElementById("heatmap");
+
+  async function tick() {
+    try {
+      const res = await fetch("/data");
+      const payload = await res.json();
+
+      statusPill.textContent = "Live";
+      statusPill.classList.add("ok");
+
+      // KPIs
+      setText("kpiSkip", payload.metrics.skip);
+      setText("kpiIdeal", payload.metrics.ideal);
+      setText("kpiDouble", payload.metrics.double);
+      setText("kpiOver", payload.metrics.overdrop);
+
+      // Table
+      tubeTable.innerHTML = "";
+      Object.entries(payload.tubes).forEach(([tube, count]) => {
+        const tr = document.createElement("tr");
+
+        const tdTube = document.createElement("td");
+        tdTube.textContent = `Tube ${tube}`;
+
+        const tdCount = document.createElement("td");
+        tdCount.textContent = count;
+
+        const tdBucket = document.createElement("td");
+        const b = bucketLabel(count);
+        tdBucket.innerHTML = `<span class="badge ${b}">${b}</span>`;
+
+        tr.appendChild(tdTube);
+        tr.appendChild(tdCount);
+        tr.appendChild(tdBucket);
+        tubeTable.appendChild(tr);
+      });
+
+      // Chart
+      drawHistory(chart, payload.history || []);
+
+      // Heatmap
+      renderHeatmap(heatmapEl, payload.heatmap || []);
+    } catch (e) {
+      statusPill.textContent = "Offline";
+      statusPill.classList.remove("ok");
+      console.error(e);
+    }
+  }
+
+  tick();
+  setInterval(tick, 1000);
+</script>
+{% endblock %}

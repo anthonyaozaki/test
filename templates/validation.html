@@ -1,0 +1,87 @@
+{#
+  validation.html
+  - Explains your bucketing logic and how you might define "valid planting".
+  - This page is helpful for a design review presentation: it documents rules.
+#}
+{% extends "base.html" %}
+{% set title = "Validation • Seed Validation" %}
+
+{% block content %}
+<div class="page-title">
+  <h1 class="h1">Validation Rules</h1>
+  <p class="muted">How we bucket each tube’s seed count per time slice.</p>
+</div>
+
+<section class="grid-2">
+  <div class="card">
+    <h2 class="h2">Bucketing (current)</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Seed count</th>
+          <th>Bucket</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>0</td>
+          <td><span class="badge skip">skip</span></td>
+          <td>Missed drop (gap)</td>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td><span class="badge ideal">ideal</span></td>
+          <td>Correct single seed</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><span class="badge double">double</span></td>
+          <td>Two seeds (crowding / waste)</td>
+        </tr>
+        <tr>
+          <td>3+</td>
+          <td><span class="badge overdrop">overdrop</span></td>
+          <td>Overdrop (severe)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="small muted mt">
+      In your Flask backend, this mapping is implemented in <code>classify(seed_count)</code>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2 class="h2">Defining “Valid Planting”</h2>
+    <p class="muted">
+      A simple validity rule for a time window could be:
+    </p>
+    <div class="codebox">
+      valid = (ideal_rate ≥ threshold) AND (skip_rate ≤ max_skip) AND (overdrop_rate ≤ max_over)
+    </div>
+
+    <ul class="list mt">
+      <li><b>ideal_rate</b> = ideal / total observations</li>
+      <li><b>threshold</b> might be 0.97 (97%) depending on stakeholder requirement</li>
+      <li>In production, you’d compute these per tube and also overall</li>
+    </ul>
+
+    <div class="callout">
+      <div class="callout-title">Why this helps</div>
+      <div class="callout-text">
+        It turns raw detection output into an actionable “pass/fail” signal the crew can use.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="card mt">
+  <h2 class="h2">Where to go next</h2>
+  <ol class="list">
+    <li>Connect this page to real computed metrics from stored runs.</li>
+    <li>Add per-tube validity flags and highlight failing tubes.</li>
+    <li>Add export/report generation for QA (PDF/CSV).</li>
+  </ol>
+</section>
+{% endblock %}
