@@ -153,6 +153,67 @@
     </div>
   </div>
 </section>
+
+<!-- How It Works Flowchart -->
+<section class="card mt">
+  <div class="row between">
+    <div>
+      <h2 class="h2">How It Works</h2>
+      <p class="muted" style="margin:6px 0 0;">
+        High-level system flow from seed sensing to operator feedback.
+      </p>
+    </div>
+    <div class="pill ok">System Pipeline</div>
+  </div>
+
+  <div class="flowchart mt">
+    <div class="flow-step">
+      <div class="flow-icon">📡</div>
+      <div class="flow-title">1. Sensor Input</div>
+      <div class="flow-text">
+        A sensor or camera watches the planter tube and captures seed activity in real time.
+      </div>
+    </div>
+
+    <div class="flow-arrow">→</div>
+
+    <div class="flow-step">
+      <div class="flow-icon">🌱</div>
+      <div class="flow-title">2. Seed Detection</div>
+      <div class="flow-text">
+        The system detects passing seeds and estimates the drop count for that tube event.
+      </div>
+    </div>
+
+    <div class="flow-arrow">→</div>
+
+    <div class="flow-step">
+      <div class="flow-icon">⚙️</div>
+      <div class="flow-title">3. Backend Processing</div>
+      <div class="flow-text">
+        The backend classifies each event as skip, ideal, double, or overdrop and stores the result.
+      </div>
+    </div>
+
+    <div class="flow-arrow">→</div>
+
+    <div class="flow-step">
+      <div class="flow-icon">📊</div>
+      <div class="flow-title">4. Dashboard Alerts & Analytics</div>
+      <div class="flow-text">
+        The operator sees live tube status, critical alerts, and summary analytics for planting performance.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout mt">
+    <div class="callout-title">Current prototype mapping</div>
+    <div class="callout-text">
+      In this prototype, seed events are normalized through <code>/api/seed_event</code>, live updates are
+      shown through <code>/data</code>, and the dashboard surfaces the results through the Live and Analytics pages.
+    </div>
+  </div>
+</section>
 {% endblock %}
 
 {% block scripts %}
@@ -200,11 +261,10 @@
   }
 
   function addFarmRow(code, name) {
-    // Show table, hide empty message
     const emptyMsg = document.getElementById("emptyMsg");
-    const table    = document.getElementById("farmTable");
+    const table = document.getElementById("farmTable");
     if (emptyMsg) emptyMsg.style.display = "none";
-    if (table)    table.style.display = "";
+    if (table) table.style.display = "";
 
     const tbody = document.getElementById("farmTableBody");
     const tr = document.createElement("tr");

@@ -325,3 +325,148 @@ code{
   cursor: not-allowed;
   filter: grayscale(1);
 }
+
+.pill.ok {
+  background: #18351f;
+  color: #86efac;
+}
+
+.pill.warn {
+  background: #3a2a12;
+  color: #fcd34d;
+}
+
+.pill.bad {
+  background: #3f1515;
+  color: #fca5a5;
+}
+
+/* How It Works flowchart */
+.flowchart{
+  display:grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.flow-step{
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  min-height: 170px;
+  box-shadow: var(--shadow);
+}
+
+.flow-icon{
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.flow-title{
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.flow-text{
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.flow-arrow{
+  display:grid;
+  place-items:center;
+  font-size: 28px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+@media (max-width: 920px){
+  .flowchart{
+    grid-template-columns: 1fr;
+  }
+
+  .flow-arrow{
+    transform: rotate(90deg);
+    min-height: 24px;
+  }
+
+  .flow-step{
+    min-height: auto;
+  }
+}
+
+/* Implementation of Filter Button Variants */
+.btn.small {
+  padding: 6px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn.ok { border-color: rgba(52,211,153,0.4); color: var(--ok); }
+.btn.warn { border-color: rgba(251,191,36,0.4); color: var(--warn); }
+.btn.bad { border-color: rgba(251,113,133,0.4); color: var(--bad); }
+.btn.over { 
+  border-color: rgba(251, 113, 133, 0.8); 
+  color: #fb7185; 
+}
+
+.btn.over:hover {
+  background: rgba(251, 113, 133, 0.1);
+}
+
+/* Highlight the currently active filter */
+.active-filter {
+  background: rgba(125, 211, 252, 0.15) !important;
+  border-color: #7dd3fc !important;
+}
+
+/* Container to make the 50-tube table scrollable */
+.table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+/* Keeps the table header visible while scrolling */
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel2);
+}
+
+/* 5x10 Grid for the 50 Tubes */
+.tube-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr); /* 10 columns */
+  gap: 6px;
+  background: rgba(255,255,255,0.02);
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.tube-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+  color: rgba(255,255,255,0.8);
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: background 0.3s ease;
+}
+
+.legend-box { width: 12px; height: 12px; border-radius: 3px; }
+.skip { background-color: #7f1d1d; border-color: var(--bad); }    /* Deep Red */
+.ideal { background-color: #065f46; border-color: var(--ok); }   /* Deep Green */
+.warn { background-color: #92400e; border-color: var(--warn); } /* Deep Orange */
+.over { background-color: #701a75; border-color: #d946ef; }     /* Purple */

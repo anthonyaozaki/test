@@ -8,6 +8,11 @@ app = Flask(__name__)
 
 DB_PATH = "seed_validation.db"
 
+# ---------- Monitoring State ----------
+monitoring_state = {
+    "status": "running"   # possible values: running, paused, stopped
+}
+
 # ---------- Database Setup ----------
 
 def get_db():
@@ -67,7 +72,6 @@ def normalize_seed_event(raw_event):
     """
     Convert any incoming seed data into a standardized JSON format.
     """
-
     tube_id = raw_event.get("tube_id")
     seed_count = raw_event.get("seed_count")
 
@@ -107,7 +111,12 @@ def home():
             "farm_code": last["farm_code"],
         }
     else:
-        run_data = {"accuracy": 97, "seeds": 12500, "status": "Active", "farm_code": None}
+        run_data = {
+            "accuracy": 97,
+            "seeds": 12500,
+            "status": "Active",
+            "farm_code": None
+        }
 
     return render_template("home.html", data=run_data, farms=[dict(f) for f in farms])
 
@@ -238,7 +247,6 @@ def api_runs_create():
 
 @app.route("/api/seed_event", methods=["POST"])
 def api_seed_event():
-
     raw_event = request.get_json(silent=True) or {}
 
     if "tube_id" not in raw_event or "seed_count" not in raw_event:
@@ -251,16 +259,74 @@ def api_seed_event():
     return jsonify(normalized)
 
 
+# ---------- Control API ----------
+
+@app.route("/api/control/pause", methods=["POST"])
+def api_control_pause():
+    monitoring_state["status"] = "paused"
+    return jsonify({
+        "success": True,
+        "status": monitoring_state["status"],
+        "message": "Monitoring paused."
+    }), 200
+
+
+@app.route("/api/control/resume", methods=["POST"])
+def api_control_resume():
+    monitoring_state["status"] = "running"
+    return jsonify({
+        "success": True,
+        "status": monitoring_state["status"],
+        "message": "Monitoring resumed."
+    }), 200
+
+
+@app.route("/api/control/stop", methods=["POST"])
+def api_control_stop():
+    monitoring_state["status"] = "stopped"
+    return jsonify({
+        "success": True,
+        "status": monitoring_state["status"],
+        "message": "Monitoring stopped."
+    }), 200
+
+
+@app.route("/api/control/status", methods=["GET"])
+def api_control_status():
+    return jsonify({
+        "success": True,
+        "status": monitoring_state["status"]
+    }), 200
+
+
 # ---------- Real-time Data Simulation ----------
 
 @app.route("/data")
 def data():
+    if monitoring_state["status"] == "paused":
+        return jsonify({
+            "monitoring_status": "paused",
+            "message": "Monitoring is currently paused.",
+            "tubes": tube_data,
+            "metrics": {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0},
+            "history": history[-20:],
+            "events": []
+        })
+
+    if monitoring_state["status"] == "stopped":
+        return jsonify({
+            "monitoring_status": "stopped",
+            "message": "Monitoring has been stopped.",
+            "tubes": tube_data,
+            "metrics": {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0},
+            "history": history[-20:],
+            "events": []
+        })
 
     metrics = {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0}
     normalized_events = []
 
     for tube in tube_data:
-
         count = random.choice([0, 1, 1, 1, 2, 3])
 
         raw_event = {
@@ -272,7 +338,6 @@ def data():
 
         tube_data[tube] = count
         metrics[normalized["classification"]] += 1
-
         normalized_events.append(normalized)
 
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -283,6 +348,7 @@ def data():
     })
 
     return jsonify({
+        "monitoring_status": "running",
         "tubes": tube_data,
         "metrics": metrics,
         "history": history[-20:],
