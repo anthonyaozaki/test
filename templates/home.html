@@ -1,7 +1,8 @@
 {#
   home.html
-  - Landing page after "login".
-  - Shows last run summary + farm code management panel.
+  - Landing page after login.
+  - Farm code management + Start Run workflow.
+  - User must register a farm code, then start a run to go to Live.
 #}
 {% extends "base.html" %}
 {% set title = "Home • Seed Validation" %}
@@ -9,13 +10,13 @@
 {% block content %}
 <div class="page-title">
   <h1 class="h1">Dashboard Home</h1>
-  <p class="muted">Quick summary of the most recent run and farm location.</p>
+  <p class="muted">Register a farm, then start a planting run to begin monitoring.</p>
 </div>
 
 <!-- KPI row -->
 <section class="grid-3">
   <div class="card">
-    <div class="kpi-label">Estimated Accuracy</div>
+    <div class="kpi-label">Last Run Accuracy</div>
     <div class="kpi-value">{{ data.accuracy }}%</div>
     <div class="kpi-note muted">Target ≥ 97%</div>
   </div>
@@ -23,34 +24,80 @@
   <div class="card">
     <div class="kpi-label">Seeds Processed</div>
     <div class="kpi-value">{{ "{:,}".format(data.seeds) }}</div>
-    <div class="kpi-note muted">Total across tubes</div>
+    <div class="kpi-note muted">Total from last run</div>
   </div>
 
   <div class="card">
     <div class="kpi-label">System Status</div>
-    <div class="kpi-value">{{ data.status }}</div>
+    <div id="systemStatus" class="kpi-value">{{ data.status }}</div>
     <div class="kpi-note muted">
       {% if data.farm_code %}
-        Farm: <code>{{ data.farm_code }}</code>
+        Last farm: <code>{{ data.farm_code }}</code>
       {% else %}
-        No farm linked yet
+        No runs recorded yet
       {% endif %}
     </div>
   </div>
 </section>
 
-<!-- Farm code + quick nav -->
+<!-- Start Run + Farm Code panels -->
 <section class="grid-2 mt">
+
+  <!-- Start Run Panel -->
+  <div class="card accent">
+    <h2 class="h2">Start a Planting Run</h2>
+    <p class="muted" style="margin:6px 0 12px;">
+      Select a registered farm and a simulation profile, then hit <b>Start Run</b>.
+      You'll be taken to the Live page to monitor seed events in real time.
+    </p>
+
+    <div class="form" id="startRunForm">
+      <!-- Farm selector -->
+      <div class="label">Farm Code</div>
+      <select class="input" id="runFarmSelect">
+        <option value="">— Select a registered farm —</option>
+        {% for farm in farms %}
+        <option value="{{ farm.farm_code }}">
+          {{ farm.farm_code }}{% if farm.farm_name %} — {{ farm.farm_name }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+
+      <!-- Profile selector -->
+      <div class="label">Simulation Profile</div>
+      <select class="input" id="runProfileSelect">
+        {% for key, profile in profiles.items() %}
+        <option value="{{ key }}">{{ profile.label }} — {{ profile.description }}</option>
+        {% endfor %}
+      </select>
+
+      <button class="btn primary" id="startRunBtn" onclick="startRun()" style="margin-top:6px;">
+        Start Run
+      </button>
+
+      <p id="runMsg" class="small muted" style="min-height:18px; margin:0;"></p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="callout">
+      <div class="callout-title">How it works</div>
+      <div class="callout-text">
+        Starting a run launches a background sensor simulator that generates
+        realistic seed events. In production, this would be replaced by real
+        Adafruit IR break-beam sensor data from the Raspberry Pi.
+      </div>
+    </div>
+  </div>
 
   <!-- Farm Code Panel -->
   <div class="card">
     <h2 class="h2">Farm Code</h2>
     <p class="muted" style="margin:6px 0 12px;">
-      A farm code identifies the field location for a planting session.
-      Format: <code>1 letter + 5 digits</code> &nbsp;(e.g. <code>A12345</code>).
+      Register a farm before starting a run.
+      Format: <code>1 letter + 5 digits</code> (e.g. <code>A12345</code>).
     </p>
 
-    <!-- Register new farm -->
     <div class="form" id="farmForm">
       <div class="row" style="gap:8px; align-items:flex-end;">
         <div style="flex:1;">
@@ -74,18 +121,12 @@
 
     <div class="divider"></div>
 
-    <!-- Registered farms list -->
     <h3 style="margin:0 0 10px; font-size:14px; color:var(--muted);">Registered Farms</h3>
     <div id="farmList">
       {% if farms %}
         <table class="table">
           <thead>
-            <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th>Registered</th>
-              <th></th>
-            </tr>
+            <tr><th>Code</th><th>Name</th><th>Registered</th><th></th></tr>
           </thead>
           <tbody id="farmTableBody">
             {% for farm in farms %}
@@ -108,49 +149,23 @@
         <p class="muted small" id="emptyMsg">No farms registered yet.</p>
         <table class="table" id="farmTable" style="display:none;">
           <thead>
-            <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th>Registered</th>
-              <th></th>
-            </tr>
+            <tr><th>Code</th><th>Name</th><th>Registered</th><th></th></tr>
           </thead>
           <tbody id="farmTableBody"></tbody>
         </table>
       {% endif %}
     </div>
   </div>
+</section>
 
-  <!-- Right column -->
-  <div style="display:flex; flex-direction:column; gap:16px;">
-    <div class="card">
-      <h2 class="h2">Start here</h2>
-      <p class="muted">For the most "demo-ready" experience:</p>
-      <ol class="list">
-        <li>Register a <b>farm code</b> to link this session to a location.</li>
-        <li>Go to <b>Live</b> to see real-time updates.</li>
-        <li>Use <b>Analytics</b> to review overall distribution.</li>
-      </ol>
-      <div class="row mt">
-        <a class="btn primary" href="{{ url_for('live') }}">Open Live View</a>
-        <a class="btn" href="{{ url_for('analytics') }}">View Analytics</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2 class="h2">Stakeholder context</h2>
-      <p class="muted">
-        Operators need immediate feedback when a planter tube is skipping (0) or overdropping (&gt;2).
-        The farm code ties each run's data to a specific field location for traceability.
-      </p>
-      <div class="callout">
-        <div class="callout-title">Note</div>
-        <div class="callout-text">
-          Farm codes and runs are persisted in <code>seed_validation.db</code> (SQLite).
-          Replace the simulated data in <code>/data</code> with real sensor output later.
-        </div>
-      </div>
-    </div>
+<!-- Run History -->
+<section class="card mt">
+  <div class="row between">
+    <h2 class="h2">Run History</h2>
+    <div class="muted small">Last 10 completed runs</div>
+  </div>
+  <div id="runHistoryContainer" style="margin-top:12px;">
+    <p class="muted small">Loading...</p>
   </div>
 </section>
 
@@ -174,9 +189,7 @@
         A sensor or camera watches the planter tube and captures seed activity in real time.
       </div>
     </div>
-
     <div class="flow-arrow">→</div>
-
     <div class="flow-step">
       <div class="flow-icon">🌱</div>
       <div class="flow-title">2. Seed Detection</div>
@@ -184,9 +197,7 @@
         The system detects passing seeds and estimates the drop count for that tube event.
       </div>
     </div>
-
     <div class="flow-arrow">→</div>
-
     <div class="flow-step">
       <div class="flow-icon">⚙️</div>
       <div class="flow-title">3. Backend Processing</div>
@@ -194,23 +205,13 @@
         The backend classifies each event as skip, ideal, double, or overdrop and stores the result.
       </div>
     </div>
-
     <div class="flow-arrow">→</div>
-
     <div class="flow-step">
       <div class="flow-icon">📊</div>
-      <div class="flow-title">4. Dashboard Alerts & Analytics</div>
+      <div class="flow-title">4. Dashboard & Analytics</div>
       <div class="flow-text">
-        The operator sees live tube status, critical alerts, and summary analytics for planting performance.
+        The operator sees live tube status, alerts, and summary analytics for planting performance.
       </div>
-    </div>
-  </div>
-
-  <div class="callout mt">
-    <div class="callout-title">Current prototype mapping</div>
-    <div class="callout-text">
-      In this prototype, seed events are normalized through <code>/api/seed_event</code>, live updates are
-      shown through <code>/data</code>, and the dashboard surfaces the results through the Live and Analytics pages.
     </div>
   </div>
 </section>
@@ -218,26 +219,27 @@
 
 {% block scripts %}
 <script>
-  // Normalize input to uppercase as user types
+  // ──── Farm Code Input ────
   const codeInput = document.getElementById("farmCodeInput");
   if (codeInput) {
-    codeInput.addEventListener("input", () => {
+    codeInput.addEventListener("input", function() {
       codeInput.value = codeInput.value.toUpperCase();
     });
   }
 
-  function setMsg(text, isError = false) {
-    const el = document.getElementById("farmMsg");
+  function setMsg(id, text, isError) {
+    const el = document.getElementById(id);
     el.textContent = text;
     el.style.color = isError ? "var(--bad)" : "var(--ok)";
   }
 
+  // ──── Register Farm ────
   async function registerFarm() {
     const code = document.getElementById("farmCodeInput").value.trim().toUpperCase();
     const name = document.getElementById("farmNameInput").value.trim();
 
     if (!/^[A-Z]\d{5}$/.test(code)) {
-      setMsg("Invalid code — must be 1 letter + 5 digits (e.g. A12345).", true);
+      setMsg("farmMsg", "Invalid code — must be 1 letter + 5 digits (e.g. A12345).", true);
       return;
     }
 
@@ -250,52 +252,173 @@
     const data = await res.json();
 
     if (!res.ok) {
-      setMsg(data.error || "Error registering farm.", true);
+      setMsg("farmMsg", data.error || "Error registering farm.", true);
       return;
     }
 
-    setMsg(`Farm ${code} registered successfully.`);
+    setMsg("farmMsg", "Farm " + code + " registered successfully.", false);
     document.getElementById("farmCodeInput").value = "";
     document.getElementById("farmNameInput").value = "";
     addFarmRow(data.farm_code, data.farm_name);
+    addFarmToSelector(data.farm_code, data.farm_name);
   }
 
   function addFarmRow(code, name) {
-    const emptyMsg = document.getElementById("emptyMsg");
-    const table = document.getElementById("farmTable");
+    var emptyMsg = document.getElementById("emptyMsg");
+    var table = document.getElementById("farmTable");
     if (emptyMsg) emptyMsg.style.display = "none";
     if (table) table.style.display = "";
 
-    const tbody = document.getElementById("farmTableBody");
-    const tr = document.createElement("tr");
-    tr.id = `farm-row-${code}`;
-    const today = new Date().toISOString().slice(0, 10);
-    tr.innerHTML = `
-      <td><code>${code}</code></td>
-      <td>${name || "—"}</td>
-      <td class="muted small">${today}</td>
-      <td>
-        <button
-          class="btn"
-          style="padding:4px 10px; font-size:12px; color:var(--bad); border-color:rgba(251,113,133,0.3);"
-          onclick="deleteFarm('${code}')"
-        >Remove</button>
-      </td>`;
+    var tbody = document.getElementById("farmTableBody");
+    var tr = document.createElement("tr");
+    tr.id = "farm-row-" + code;
+    var today = new Date().toISOString().slice(0, 10);
+    tr.innerHTML =
+      '<td><code>' + code + '</code></td>' +
+      '<td>' + (name || "—") + '</td>' +
+      '<td class="muted small">' + today + '</td>' +
+      '<td><button class="btn" style="padding:4px 10px;font-size:12px;color:var(--bad);border-color:rgba(251,113,133,0.3);" onclick="deleteFarm(\'' + code + '\')">Remove</button></td>';
     tbody.appendChild(tr);
   }
 
-  async function deleteFarm(code) {
-    if (!confirm(`Remove farm ${code}? This cannot be undone.`)) return;
+  function addFarmToSelector(code, name) {
+    var select = document.getElementById("runFarmSelect");
+    var opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = code + (name ? " — " + name : "");
+    select.appendChild(opt);
+    // Auto-select the newly registered farm
+    select.value = code;
+  }
 
-    const res = await fetch(`/api/farms/${code}`, { method: "DELETE" });
+  async function deleteFarm(code) {
+    if (!confirm("Remove farm " + code + "? This cannot be undone.")) return;
+
+    var res = await fetch("/api/farms/" + code, { method: "DELETE" });
     if (res.ok) {
-      const row = document.getElementById(`farm-row-${code}`);
+      var row = document.getElementById("farm-row-" + code);
       if (row) row.remove();
-      setMsg(`Farm ${code} removed.`);
+      setMsg("farmMsg", "Farm " + code + " removed.", false);
+
+      // Remove from selector
+      var select = document.getElementById("runFarmSelect");
+      for (var i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === code) {
+          select.remove(i);
+          break;
+        }
+      }
     } else {
-      const data = await res.json();
-      setMsg(data.error || "Error removing farm.", true);
+      var data = await res.json();
+      setMsg("farmMsg", data.error || "Error removing farm.", true);
     }
   }
+
+  // ──── Start Run ────
+  async function startRun() {
+    var farmCode = document.getElementById("runFarmSelect").value;
+    var profile = document.getElementById("runProfileSelect").value;
+
+    if (!farmCode) {
+      setMsg("runMsg", "Please select a registered farm code first.", true);
+      return;
+    }
+
+    var btn = document.getElementById("startRunBtn");
+    btn.disabled = true;
+    btn.textContent = "Starting...";
+
+    try {
+      var res = await fetch("/api/run/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farm_code: farmCode, profile: profile })
+      });
+
+      var data = await res.json();
+
+      if (!res.ok) {
+        setMsg("runMsg", data.error || "Failed to start run.", true);
+        btn.disabled = false;
+        btn.textContent = "Start Run";
+        return;
+      }
+
+      setMsg("runMsg", "Run started! Redirecting to Live...", false);
+
+      // Redirect to live page after a brief moment
+      setTimeout(function() {
+        window.location.href = "/live";
+      }, 500);
+
+    } catch (e) {
+      setMsg("runMsg", "Connection error. Is the server running?", true);
+      btn.disabled = false;
+      btn.textContent = "Start Run";
+    }
+  }
+
+  // ──── Run History ────
+  async function loadRunHistory() {
+    var container = document.getElementById("runHistoryContainer");
+    try {
+      var res = await fetch("/api/runs");
+      var runs = await res.json();
+
+      if (!runs.length) {
+        container.innerHTML = '<p class="muted small">No completed runs yet. Start your first run above.</p>';
+        return;
+      }
+
+      var html = '<table class="table"><thead><tr>' +
+        '<th>Farm</th><th>Profile</th><th>Seeds</th><th>Accuracy</th><th>Status</th><th>Started</th>' +
+        '</tr></thead><tbody>';
+
+      runs.slice(0, 10).forEach(function(run) {
+        var pctColor = "var(--muted)";
+        if (run.accuracy >= 97) pctColor = "var(--ok)";
+        else if (run.accuracy >= 90) pctColor = "var(--warn)";
+        else pctColor = "var(--bad)";
+
+        html += '<tr>' +
+          '<td><code>' + run.farm_code + '</code></td>' +
+          '<td>' + (run.profile || "—") + '</td>' +
+          '<td>' + (run.seeds || 0).toLocaleString() + '</td>' +
+          '<td style="color:' + pctColor + ';font-weight:700;">' + run.accuracy + '%</td>' +
+          '<td>' + run.status + '</td>' +
+          '<td class="muted small">' + (run.started_at || "").slice(0, 19).replace("T", " ") + '</td>' +
+          '</tr>';
+      });
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = '<p class="muted small">Could not load run history.</p>';
+    }
+  }
+
+  // ──── Check if a run is already active ────
+  async function checkActiveRun() {
+    try {
+      var res = await fetch("/api/run/status");
+      var data = await res.json();
+
+      if (data.active) {
+        document.getElementById("systemStatus").textContent = "Running";
+        document.getElementById("systemStatus").style.color = "var(--ok)";
+        setMsg("runMsg", "A run is already active for farm " + data.farm_code + ". Go to Live to monitor it.", false);
+
+        var btn = document.getElementById("startRunBtn");
+        btn.textContent = "Go to Live →";
+        btn.onclick = function() { window.location.href = "/live"; };
+      }
+    } catch (e) {
+      // Server not reachable — that's ok
+    }
+  }
+
+  // Init
+  loadRunHistory();
+  checkActiveRun();
 </script>
 {% endblock %}

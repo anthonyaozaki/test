@@ -470,3 +470,11 @@ code{
 .ideal { background-color: #065f46; border-color: var(--ok); }   /* Deep Green */
 .warn { background-color: #92400e; border-color: var(--warn); } /* Deep Orange */
 .over { background-color: #701a75; border-color: #d946ef; }     /* Purple */
+
+select.input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}

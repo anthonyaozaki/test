@@ -1,100 +1,145 @@
 {#
   index.html (Live)
-  - Pulls JSON from /data every second.
-  - Displays:
-      * per-tube seed counts
-      * bucket metrics
-      * small history chart (last 20 points)
-      * heatmap grid
+  - Shows run info banner when a run is active.
+  - Pulls live data from /data every second.
+  - End Run button stops the simulator and saves to DB.
 #}
 {% extends "base.html" %}
 {% set title = "Live • Seed Validation" %}
 
 {% block content %}
-<div class="page-title">
-  <h1 class="h1">Live View</h1>
-  <p class="muted">Real-time simulated data from <code>/data</code>. Updates every 1 second.</p>
-</div>
-
-<section class="grid-4">
-  <div class="card kpi">
-    <div class="kpi-label">Skip (0)</div>
-    <div id="kpiSkip" class="kpi-value">0</div>
-    <div class="kpi-note muted">Tube reported 0</div>
-  </div>
-  <div class="card kpi">
-    <div class="kpi-label">Ideal (1)</div>
-    <div id="kpiIdeal" class="kpi-value">0</div>
-    <div class="kpi-note muted">Tube reported 1</div>
-  </div>
-  <div class="card kpi">
-    <div class="kpi-label">Double (2)</div>
-    <div id="kpiDouble" class="kpi-value">0</div>
-    <div class="kpi-note muted">Tube reported 2</div>
-  </div>
-  <div class="card kpi">
-    <div class="kpi-label">Overdrop (&gt;2)</div>
-    <div id="kpiOver" class="kpi-value">0</div>
-    <div class="kpi-note muted">Tube reported 3+</div>
-  </div>
-</section>
-
-<section class="grid-2 mt">
-  <div class="card">
-    <div class="row between">
-      <h2 class="h2">Per-tube counts</h2>
-      <div class="row">
-        <div class="pill" id="liveStatus">Connecting…</div>
-        <button id="pauseBtn" class="btn">Pause Monitoring</button>
-        <button id="resumeBtn" class="btn" style="display:none;">Resume Monitoring</button>
-        <button id="stopBtn" class="btn bad">Emergency Stop</button>
+<!-- Run Info Banner -->
+<div id="runBanner" class="card accent" style="margin-bottom:16px; display:none;">
+  <div class="row between">
+    <div class="row" style="gap:20px;">
+      <div>
+        <div class="small muted">Farm</div>
+        <div id="runFarmCode" style="font-weight:700; font-size:18px;">—</div>
+      </div>
+      <div>
+        <div class="small muted">Profile</div>
+        <div id="runProfile" style="font-weight:700;">—</div>
+      </div>
+      <div>
+        <div class="small muted">Elapsed</div>
+        <div id="runElapsed" style="font-weight:700;">0:00</div>
+      </div>
+      <div>
+        <div class="small muted">Events</div>
+        <div id="runEvents" style="font-weight:700;">0</div>
       </div>
     </div>
-
-<!-- Implementeion for the Filter/Sort Feature -->
-<div class="row mt" style="margin-bottom: 12px; align-items: center;">
-  <span class="small muted" style="margin-right: 8px;">Quick Filter:</span>
-  <div class="row">
-    <button class="btn small active-filter" onclick="setFilter('all')">All Tubes</button>
-    <button class="btn small ok" onclick="setFilter('ideal')">Ideal (1)</button>
-    <button class="btn small warn" onclick="setFilter('double')">Doubles (2)</button>
-    <button class="btn small bad" onclick="setFilter('skip')">Skips (0)</button>
-    <button class="btn small over" onclick="setFilter('overdrop')">Overdrop (>2)</button>
+    <div class="row">
+      <button id="pauseBtn" class="btn" onclick="pauseRun()">Pause</button>
+      <button id="resumeBtn" class="btn" style="display:none;" onclick="resumeRun()">Resume</button>
+      <button id="endRunBtn" class="btn bad" onclick="endRun()">End Run</button>
+    </div>
   </div>
 </div>
 
-    <div class="table-container">
-    <table class="table" aria-label="Tube counts table">
-      <thead>
-        <tr>
-          <th>Tube</th>
-          <th>Seed Count</th>
-          <th>Bucket</th>
-        </tr>
-      </thead>
-      <tbody id="tubeTable"></tbody>
-    </table>
+<!-- No Run State -->
+<div id="noRunBanner" class="card" style="margin-bottom:16px; text-align:center; padding:32px;">
+  <h2 class="h2">No Active Run</h2>
+  <p class="muted" style="margin:8px 0 16px;">Start a planting run from the Home page to begin monitoring.</p>
+  <a class="btn primary" href="/home">Go to Home</a>
+</div>
+
+<div id="liveContent" style="display:none;">
+  <div class="page-title">
+    <h1 class="h1">Live View</h1>
+    <p class="muted">Real-time sensor data. Updates every 1 second.</p>
+  </div>
+
+  <section class="grid-4">
+    <div class="card kpi">
+      <div class="kpi-label">Skip (0)</div>
+      <div id="kpiSkip" class="kpi-value">0</div>
+      <div class="kpi-note muted">Tube reported 0</div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-label">Ideal (1)</div>
+      <div id="kpiIdeal" class="kpi-value">0</div>
+      <div class="kpi-note muted">Tube reported 1</div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-label">Double (2)</div>
+      <div id="kpiDouble" class="kpi-value">0</div>
+      <div class="kpi-note muted">Tube reported 2</div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-label">Overdrop (&gt;2)</div>
+      <div id="kpiOver" class="kpi-value">0</div>
+      <div class="kpi-note muted">Tube reported 3+</div>
+    </div>
+  </section>
+
+  <section class="grid-2 mt">
+    <div class="card">
+      <div class="row between">
+        <h2 class="h2">Per-tube counts</h2>
+        <div class="pill" id="liveStatus">Connecting…</div>
+      </div>
+
+      <div class="table-container" style="margin-top:12px;">
+        <table class="table" aria-label="Tube counts table">
+          <thead>
+            <tr><th>Tube</th><th>Seed Count</th><th>Bucket</th></tr>
+          </thead>
+          <tbody id="tubeTable"></tbody>
+        </table>
+      </div>
+
+      <p class="small muted mt">
+        Buckets: 0 = <b>skip</b>, 1 = <b>ideal</b>, 2 = <b>double</b>, 3+ = <b>overdrop</b>
+      </p>
     </div>
 
-    <p class="small muted mt">
-      Buckets: 0 = <b>skip</b>, 1 = <b>ideal</b>, 2 = <b>double</b>, 3+ = <b>overdrop</b>
-    </p>
-  </div>
+    <div class="card">
+      <h2 class="h2">Total seeds over time</h2>
+      <p class="muted small">Last 20 updates (1 second interval).</p>
+      <canvas id="historyChart" width="700" height="260" class="canvas"></canvas>
+    </div>
+  </section>
 
-  <div class="card">
-    <h2 class="h2">Total seeds over time</h2>
-    <p class="muted small">Last 20 updates (1 second interval).</p>
-    <canvas id="historyChart" width="700" height="260" class="canvas"></canvas>
-  </div>
-</section>
+  <section class="card mt">
+    <div class="row between">
+      <h2 class="h2">Per-Tube Classification Breakdown</h2>
+      <div class="muted small">Cumulative counts this run</div>
+    </div>
+    <canvas id="tubeBarChart" width="700" height="300" class="canvas" style="margin-top:12px;"></canvas>
+    <div class="row mt" style="justify-content:center; gap:20px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+        <div style="width:10px;height:10px;border-radius:3px;background:#34d399;"></div>
+        <span class="muted">Ideal</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+        <div style="width:10px;height:10px;border-radius:3px;background:#fb7185;"></div>
+        <span class="muted">Skip</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+        <div style="width:10px;height:10px;border-radius:3px;background:#fbbf24;"></div>
+        <span class="muted">Double</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+        <div style="width:10px;height:10px;border-radius:3px;background:#c084fc;"></div>
+        <span class="muted">Overdrop</span>
+      </div>
+    </div>
+  </section>
+</div>
 
-<section class="card mt">
-  <div class="row between">
-    <h2 class="h2">Heatmap (simulated grid)</h2>
-    <div class="muted small">8 × 14 cells</div>
+<!-- Run Summary Modal -->
+<div id="summaryOverlay" style="display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.6); display:none; place-items:center;">
+  <div class="card" style="max-width:500px; width:90%; margin:auto; margin-top:15vh;">
+    <h2 class="h2">Run Complete</h2>
+    <div class="divider"></div>
+    <div id="summaryContent"></div>
+    <div class="row mt" style="justify-content:flex-end;">
+      <a class="btn" href="/home">Back to Home</a>
+      <a class="btn primary" href="/analytics">View Analytics</a>
+    </div>
   </div>
-  <div id="heatmap" class="heatmap" aria-label="Heatmap grid"></div>
-</section>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -107,80 +152,36 @@
   }
 
   function setText(id, text) {
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     if (el) el.textContent = text;
   }
 
-  function setMonitoringUI(status) {
-    const pauseBtn = document.getElementById("pauseBtn");
-    const resumeBtn = document.getElementById("resumeBtn");
-    const stopBtn = document.getElementById("stopBtn");
-
-    if (status === "running") {
-      statusPill.textContent = "Live";
-      statusPill.classList.add("ok");
-      statusPill.classList.remove("warn", "bad");
-
-      pauseBtn.style.display = "inline-block";
-      resumeBtn.style.display = "none";
-      stopBtn.style.display = "inline-block";
-    } else if (status === "paused") {
-      statusPill.textContent = "Paused";
-      statusPill.classList.remove("ok", "bad");
-      statusPill.classList.add("warn");
-
-      pauseBtn.style.display = "none";
-      resumeBtn.style.display = "inline-block";
-      stopBtn.style.display = "inline-block";
-    } else if (status === "stopped") {
-      statusPill.textContent = "Stopped";
-      statusPill.classList.remove("ok", "warn");
-      statusPill.classList.add("bad");
-
-      pauseBtn.style.display = "none";
-      resumeBtn.style.display = "inline-block";
-      stopBtn.style.display = "none";
-    } else {
-      statusPill.textContent = "Unknown";
-      statusPill.classList.remove("ok", "warn", "bad");
-    }
+  function formatElapsed(seconds) {
+    var m = Math.floor(seconds / 60);
+    var s = seconds % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  async function postControl(url) {
-    try {
-      const res = await fetch(url, { method: "POST" });
-      const payload = await res.json();
-      setMonitoringUI(payload.status);
-      await tick();
-    } catch (err) {
-      console.error(err);
-      statusPill.textContent = "Control Error";
-      statusPill.classList.remove("ok", "warn", "bad");
-    }
-  }
-
+  // ──── Chart Drawing ────
   function drawHistory(canvas, points) {
-    const ctx = canvas.getContext("2d");
-    const w = canvas.width;
-    const h = canvas.height;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width;
+    var h = canvas.height;
 
     ctx.clearRect(0, 0, w, h);
-
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "#1f2a44";
     ctx.fillStyle = "#0b1220";
     ctx.fillRect(0, 0, w, h);
 
-    const values = points.map(p => p.total);
-    const minV = Math.min(...values, 0);
-    const maxV = Math.max(...values, 1);
+    var values = points.map(function(p) { return p.total; });
+    var minV = Math.min.apply(null, values.concat([0]));
+    var maxV = Math.max.apply(null, values.concat([1]));
 
-    const pad = 30;
-    const innerW = w - pad * 2;
-    const innerH = h - pad * 2;
+    var pad = 30;
+    var innerW = w - pad * 2;
+    var innerH = h - pad * 2;
 
     ctx.strokeStyle = "#263353";
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(pad, pad);
     ctx.lineTo(pad, h - pad);
@@ -193,10 +194,10 @@
     ctx.lineWidth = 2;
     ctx.beginPath();
 
-    points.forEach((p, i) => {
-      const x = pad + (i / (points.length - 1)) * innerW;
-      const t = (p.total - minV) / (maxV - minV || 1);
-      const y = (h - pad) - t * innerH;
+    points.forEach(function(p, i) {
+      var x = pad + (i / (points.length - 1)) * innerW;
+      var t = (p.total - minV) / (maxV - minV || 1);
+      var y = (h - pad) - t * innerH;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -209,80 +210,360 @@
     ctx.fillText(String(minV), 6, h - pad);
   }
 
-  function renderHeatmap(container, grid) {
-    container.innerHTML = "";
+  // ──── Per-Tube Bar Chart ────
+  var BAR_COLORS = {
+    ideal:    "#34d399",
+    skip:     "#fb7185",
+    double:   "#fbbf24",
+    overdrop: "#c084fc"
+  };
 
-    if (!grid || !grid.length) {
-      container.innerHTML = "<p class='muted small'>No heatmap data available.</p>";
+  function drawTubeBarChart(canvas, perTube) {
+    var ctx = canvas.getContext("2d");
+    var dpr = window.devicePixelRatio || 1;
+    var displayW = canvas.parentElement.clientWidth - 32;
+    var displayH = 300;
+
+    canvas.width = displayW * dpr;
+    canvas.height = displayH * dpr;
+    canvas.style.width = displayW + "px";
+    canvas.style.height = displayH + "px";
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, displayW, displayH);
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0, 0, displayW, displayH);
+
+    var tubeIds = Object.keys(perTube).sort(function(a, b) { return Number(a) - Number(b); });
+    var categories = ["ideal", "skip", "double", "overdrop"];
+
+    if (tubeIds.length === 0) {
+      ctx.fillStyle = "#9aa7c7";
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("Waiting for data...", displayW / 2, displayH / 2);
       return;
     }
 
-    grid.flat().forEach(v => {
-      const cell = document.createElement("div");
-      cell.className = "heatcell";
-      const intensity = Math.min(3, Math.max(0, v)) / 3;
-      cell.style.backgroundColor = `hsl(210, 60%, ${14 + intensity * 28}%)`;
-      cell.title = `Value: ${v}`;
-      cell.textContent = v;
-      container.appendChild(cell);
+    // Find max value for scaling
+    var maxVal = 1;
+    tubeIds.forEach(function(t) {
+      categories.forEach(function(cat) {
+        var v = perTube[t][cat] || 0;
+        if (v > maxVal) maxVal = v;
+      });
+    });
+
+    var pad = { top: 20, right: 20, bottom: 40, left: 50 };
+    var chartW = displayW - pad.left - pad.right;
+    var chartH = displayH - pad.top - pad.bottom;
+
+    // Draw axes
+    ctx.strokeStyle = "#263353";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, pad.top + chartH);
+    ctx.lineTo(pad.left + chartW, pad.top + chartH);
+    ctx.stroke();
+
+    // Y-axis labels
+    ctx.fillStyle = "#9aa7c7";
+    ctx.font = "11px system-ui";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    var ySteps = 4;
+    for (var i = 0; i <= ySteps; i++) {
+      var yVal = Math.round((maxVal / ySteps) * i);
+      var yPos = pad.top + chartH - (i / ySteps) * chartH;
+      ctx.fillText(String(yVal), pad.left - 8, yPos);
+
+      // Grid line
+      if (i > 0) {
+        ctx.strokeStyle = "rgba(255,255,255,0.04)";
+        ctx.beginPath();
+        ctx.moveTo(pad.left, yPos);
+        ctx.lineTo(pad.left + chartW, yPos);
+        ctx.stroke();
+      }
+    }
+
+    // Bar groups
+    var numTubes = tubeIds.length;
+    var groupWidth = chartW / numTubes;
+    var barWidth = (groupWidth * 0.7) / categories.length;
+    var groupPad = groupWidth * 0.15;
+
+    tubeIds.forEach(function(tubeId, gi) {
+      var groupX = pad.left + gi * groupWidth + groupPad;
+
+      categories.forEach(function(cat, bi) {
+        var val = perTube[tubeId][cat] || 0;
+        var barH = (val / maxVal) * chartH;
+        var x = groupX + bi * barWidth;
+        var y = pad.top + chartH - barH;
+
+        // Bar
+        ctx.fillStyle = BAR_COLORS[cat];
+        ctx.beginPath();
+        // Rounded top corners
+        var r = Math.min(3, barWidth / 2);
+        if (barH > r * 2) {
+          ctx.moveTo(x, y + r);
+          ctx.arcTo(x, y, x + barWidth - 1, y, r);
+          ctx.arcTo(x + barWidth - 1, y, x + barWidth - 1, y + barH, r);
+          ctx.lineTo(x + barWidth - 1, pad.top + chartH);
+          ctx.lineTo(x, pad.top + chartH);
+        } else if (barH > 0) {
+          ctx.rect(x, y, barWidth - 1, barH);
+        }
+        ctx.fill();
+
+        // Value label on top of bar (if tall enough)
+        if (barH > 18 && val > 0) {
+          ctx.fillStyle = "#0b1220";
+          ctx.font = "bold 10px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(String(val), x + (barWidth - 1) / 2, y + barH - 3);
+        }
+      });
+
+      // Tube label
+      ctx.fillStyle = "#9aa7c7";
+      ctx.font = "12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText("Tube " + tubeId, pad.left + gi * groupWidth + groupWidth / 2, pad.top + chartH + 8);
+
+      // Ideal % below tube label
+      var tubeData = perTube[tubeId];
+      var tubeTotal = (tubeData.skip || 0) + (tubeData.ideal || 0) + (tubeData.double || 0) + (tubeData.overdrop || 0);
+      if (tubeTotal > 0) {
+        var idealPct = ((tubeData.ideal / tubeTotal) * 100).toFixed(0) + "%";
+        var pctColor = (tubeData.ideal / tubeTotal) >= 0.97 ? "#34d399" :
+                       (tubeData.ideal / tubeTotal) >= 0.90 ? "#fbbf24" : "#fb7185";
+        ctx.fillStyle = pctColor;
+        ctx.font = "bold 11px system-ui";
+        ctx.fillText(idealPct, pad.left + gi * groupWidth + groupWidth / 2, pad.top + chartH + 22);
+      }
     });
   }
 
-  const tubeTable = document.getElementById("tubeTable");
-  const statusPill = document.getElementById("liveStatus");
-  const chart = document.getElementById("historyChart");
-  const heatmapEl = document.getElementById("heatmap");
+  // ──── DOM refs ────
+  var tubeTable = document.getElementById("tubeTable");
+  var statusPill = document.getElementById("liveStatus");
+  var chart = document.getElementById("historyChart");
+  var tubeBarChart = document.getElementById("tubeBarChart");
+  var runBanner = document.getElementById("runBanner");
+  var noRunBanner = document.getElementById("noRunBanner");
+  var liveContent = document.getElementById("liveContent");
 
-  const pauseBtn = document.getElementById("pauseBtn");
-  const resumeBtn = document.getElementById("resumeBtn");
-  const stopBtn = document.getElementById("stopBtn");
+  var isRunActive = false;
+  var tickInterval = null;
 
-  pauseBtn.addEventListener("click", () => postControl("/api/control/pause"));
-  resumeBtn.addEventListener("click", () => postControl("/api/control/resume"));
-  stopBtn.addEventListener("click", () => postControl("/api/control/stop"));
+  // ──── Check run status and set up page ────
+  async function initPage() {
+    try {
+      var res = await fetch("/api/run/status");
+      var data = await res.json();
 
+      if (data.active) {
+        isRunActive = true;
+        runBanner.style.display = "block";
+        noRunBanner.style.display = "none";
+        liveContent.style.display = "block";
+
+        setText("runFarmCode", data.farm_code);
+        setText("runProfile", data.profile);
+        setText("runEvents", data.total_events.toLocaleString());
+        if (data.elapsed_seconds !== null) {
+          setText("runElapsed", formatElapsed(data.elapsed_seconds));
+        }
+
+        // Update pause/resume button state
+        if (data.monitoring_status === "paused") {
+          document.getElementById("pauseBtn").style.display = "none";
+          document.getElementById("resumeBtn").style.display = "inline-flex";
+        }
+
+        // Start polling
+        tick();
+        tickInterval = setInterval(tick, 1000);
+      } else {
+        isRunActive = false;
+        runBanner.style.display = "none";
+        noRunBanner.style.display = "block";
+        liveContent.style.display = "none";
+      }
+    } catch (e) {
+      console.error("Could not check run status:", e);
+      noRunBanner.style.display = "block";
+    }
+  }
+
+  // ──── Tick: fetch live data ────
   async function tick() {
     try {
-      const res = await fetch("/data");
-      const payload = await res.json();
+      // Update run status
+      var statusRes = await fetch("/api/run/status");
+      var statusData = await statusRes.json();
+      setText("runEvents", statusData.total_events.toLocaleString());
+      if (statusData.elapsed_seconds !== null) {
+        setText("runElapsed", formatElapsed(statusData.elapsed_seconds));
+      }
 
-      setMonitoringUI(payload.monitoring_status || "running");
+      // Get live data
+      var res = await fetch("/data");
+      var payload = await res.json();
 
-      setText("kpiSkip", payload.metrics?.skip ?? 0);
-      setText("kpiIdeal", payload.metrics?.ideal ?? 0);
-      setText("kpiDouble", payload.metrics?.double ?? 0);
-      setText("kpiOver", payload.metrics?.overdrop ?? 0);
+      // Status pill
+      if (payload.monitoring_status === "running") {
+        statusPill.textContent = "Live";
+        statusPill.className = "pill ok";
+      } else if (payload.monitoring_status === "paused") {
+        statusPill.textContent = "Paused";
+        statusPill.className = "pill warn";
+      } else {
+        statusPill.textContent = payload.monitoring_status;
+        statusPill.className = "pill";
+      }
 
-      tubeTable.innerHTML = "";
-      Object.entries(payload.tubes || {}).forEach(([tube, count]) => {
-        const tr = document.createElement("tr");
+      // KPIs
+      setText("kpiSkip", payload.metrics.skip);
+      setText("kpiIdeal", payload.metrics.ideal);
+      setText("kpiDouble", payload.metrics.double);
+      setText("kpiOver", payload.metrics.overdrop);
 
-        const tdTube = document.createElement("td");
-        tdTube.textContent = `Tube ${tube}`;
+      // Tube table
+      if (tubeTable && payload.tubes) {
+        tubeTable.innerHTML = "";
+        Object.entries(payload.tubes).forEach(function(entry) {
+          var tube = entry[0];
+          var count = entry[1];
+          var b = bucketLabel(count);
+          var tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>Tube " + tube + "</td>" +
+            "<td>" + count + "</td>" +
+            '<td><span class="badge ' + b + '">' + b + "</span></td>";
+          tubeTable.appendChild(tr);
+        });
+      }
 
-        const tdCount = document.createElement("td");
-        tdCount.textContent = count;
+      // Chart
+      if (chart && payload.history) {
+        drawHistory(chart, payload.history);
+      }
 
-        const tdBucket = document.createElement("td");
-        const b = bucketLabel(count);
-        tdBucket.innerHTML = `<span class="badge ${b}">${b}</span>`;
+      // Per-tube bar chart (from cumulative analytics)
+      if (tubeBarChart) {
+        var analyticsRes = await fetch("/api/analytics");
+        var analyticsData = await analyticsRes.json();
+        drawTubeBarChart(tubeBarChart, analyticsData.per_tube);
+      }
 
-        tr.appendChild(tdTube);
-        tr.appendChild(tdCount);
-        tr.appendChild(tdBucket);
-        tubeTable.appendChild(tr);
-      });
-
-      drawHistory(chart, payload.history || []);
-      renderHeatmap(heatmapEl, payload.heatmap || []);
     } catch (e) {
       statusPill.textContent = "Offline";
-      statusPill.classList.remove("ok", "warn", "bad");
+      statusPill.className = "pill";
       console.error(e);
     }
   }
 
-  tick();
-  setInterval(tick, 1000);
+  // ──── Pause / Resume ────
+  async function pauseRun() {
+    await fetch("/api/control/pause", { method: "POST" });
+    document.getElementById("pauseBtn").style.display = "none";
+    document.getElementById("resumeBtn").style.display = "inline-flex";
+  }
+
+  async function resumeRun() {
+    await fetch("/api/control/resume", { method: "POST" });
+    document.getElementById("resumeBtn").style.display = "none";
+    document.getElementById("pauseBtn").style.display = "inline-flex";
+  }
+
+  // ──── End Run ────
+  async function endRun() {
+    if (!confirm("End this planting run? Results will be saved.")) return;
+
+    var btn = document.getElementById("endRunBtn");
+    btn.disabled = true;
+    btn.textContent = "Stopping...";
+
+    // Stop polling
+    if (tickInterval) clearInterval(tickInterval);
+
+    try {
+      var res = await fetch("/api/run/stop", { method: "POST" });
+
+      if (!res.ok) {
+        // Server returned an error status — try to extract message
+        var errText = "";
+        try {
+          var errData = await res.json();
+          errText = errData.error || "Server error (status " + res.status + ")";
+        } catch (_) {
+          errText = "Server error (status " + res.status + "). Check terminal for details.";
+        }
+        alert(errText);
+        btn.disabled = false;
+        btn.textContent = "End Run";
+        return;
+      }
+
+      var summary = await res.json();
+
+      if (summary.success) {
+        if (summary.db_error) {
+          console.warn("Run ended but DB save failed:", summary.db_error);
+        }
+        showSummary(summary);
+      } else {
+        alert(summary.error || "Error stopping run.");
+        btn.disabled = false;
+        btn.textContent = "End Run";
+      }
+    } catch (e) {
+      console.error("endRun error:", e);
+      alert("Could not reach the server. Is Flask still running?");
+      btn.disabled = false;
+      btn.textContent = "End Run";
+    }
+  }
+
+  function showSummary(summary) {
+    var pctColor = "var(--muted)";
+    if (summary.accuracy >= 97) pctColor = "var(--ok)";
+    else if (summary.accuracy >= 90) pctColor = "var(--warn)";
+    else pctColor = "var(--bad)";
+
+    var html = "";
+
+    if (summary.db_saved === false) {
+      html += '<div class="callout" style="border-color:rgba(251,113,133,0.4);background:rgba(251,113,133,0.08);margin-bottom:12px;">' +
+        '<div class="callout-title" style="color:var(--bad);">Warning</div>' +
+        '<div class="callout-text">Run results could not be saved to the database. The summary below is from memory only.</div>' +
+        '</div>';
+    }
+
+    html +=
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0;">' +
+        '<div><div class="small muted">Farm Code</div><div style="font-weight:700;">' + summary.farm_code + '</div></div>' +
+        '<div><div class="small muted">Profile</div><div style="font-weight:700;">' + summary.profile + '</div></div>' +
+        '<div><div class="small muted">Total Events</div><div style="font-weight:700;">' + summary.total_events.toLocaleString() + '</div></div>' +
+        '<div><div class="small muted">Ideal Rate</div><div style="font-weight:700;color:' + pctColor + ';">' + summary.accuracy + '%</div></div>' +
+        '<div><div class="small muted">Skip</div><div>' + summary.metrics.skip + '</div></div>' +
+        '<div><div class="small muted">Ideal</div><div>' + summary.metrics.ideal + '</div></div>' +
+        '<div><div class="small muted">Double</div><div>' + summary.metrics.double + '</div></div>' +
+        '<div><div class="small muted">Overdrop</div><div>' + summary.metrics.overdrop + '</div></div>' +
+      '</div>';
+
+    document.getElementById("summaryContent").innerHTML = html;
+    document.getElementById("summaryOverlay").style.display = "block";
+  }
+
+  // ──── Init ────
+  initPage();
 </script>
 {% endblock %}

@@ -1,66 +1,417 @@
 {#
   analytics.html
-  - Uses the `data` summary dict passed from app.py.
-  - This is a *static* summary in your current backend, but later you can compute it from stored runs.
+  - Fetches live cumulative data from /api/analytics.
+  - Pie chart (canvas), KPI cards, per-tube breakdown table.
+  - Auto-refreshes every 2 seconds while the page is open.
+  - Supports viewing previous completed runs from a dropdown.
 #}
 {% extends "base.html" %}
 {% set title = "Analytics • Seed Validation" %}
 
 {% block content %}
 <div class="page-title">
-  <h1 class="h1">Analytics</h1>
-  <p class="muted">High-level distribution summary (placeholder data).</p>
+  <div class="row between" style="align-items:flex-start;">
+    <div>
+      <h1 class="h1">Analytics</h1>
+      <p class="muted">Cumulative seed distribution across all tubes.</p>
+
+      <div style="margin-top:12px;">
+        <select id="runSelector" class="input" onchange="loadSelectedRun()">
+          <option value="">Current / Live Analytics</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="pill" id="sourceIndicator">Loading…</div>
+      <button class="btn" id="resetBtn" onclick="resetAnalytics()">Reset Counters</button>
+    </div>
+  </div>
 </div>
 
+<!-- KPI cards -->
 <section class="grid-4">
   <div class="card">
-    <div class="kpi-label">Zero (0)</div>
-    <div class="kpi-value">{{ data.zero }}%</div>
-    <div class="kpi-note muted">Skips</div>
+    <div class="kpi-label">Skip (0)</div>
+    <div id="kpiSkip" class="kpi-value">—</div>
+    <div id="kpiSkipPct" class="kpi-note muted">—</div>
   </div>
   <div class="card">
-    <div class="kpi-label">Single (1)</div>
-    <div class="kpi-value">{{ data.single }}%</div>
-    <div class="kpi-note muted">Ideal drops</div>
+    <div class="kpi-label">Ideal (1)</div>
+    <div id="kpiIdeal" class="kpi-value">—</div>
+    <div id="kpiIdealPct" class="kpi-note muted">—</div>
   </div>
   <div class="card">
     <div class="kpi-label">Double (2)</div>
-    <div class="kpi-value">{{ data.double }}%</div>
-    <div class="kpi-note muted">Double drops</div>
+    <div id="kpiDouble" class="kpi-value">—</div>
+    <div id="kpiDoublePct" class="kpi-note muted">—</div>
   </div>
   <div class="card">
-    <div class="kpi-label">Multiple (3+)</div>
-    <div class="kpi-value">{{ data.multiple }}%</div>
-    <div class="kpi-note muted">Overdrops</div>
+    <div class="kpi-label">Overdrop (3+)</div>
+    <div id="kpiOver" class="kpi-value">—</div>
+    <div id="kpiOverPct" class="kpi-note muted">—</div>
   </div>
 </section>
 
+<!-- Pie chart + interpretation -->
 <section class="grid-2 mt">
   <div class="card">
-    <h2 class="h2">Interpretation</h2>
-    <ul class="list">
-      <li><b>Single (1)</b> should be as high as possible.</li>
-      <li><b>Zero (0)</b> is a missed seed (gap).</li>
-      <li><b>Double (2)</b> wastes seed and can cause crowding.</li>
-      <li><b>Multiple (3+)</b> is a severe overdrop event.</li>
-    </ul>
+    <h2 class="h2">Distribution</h2>
+    <p class="muted small">Pie chart of cumulative seed classifications.</p>
+    <canvas id="pieChart" width="380" height="380" class="canvas" style="margin-top:12px;"></canvas>
+    <div id="pieLegend" class="row mt" style="justify-content:center; gap:16px;"></div>
+    <p id="totalLabel" class="small muted mt" style="text-align:center;"></p>
+  </div>
 
-    <div class="callout">
-      <div class="callout-title">Operator action</div>
-      <div class="callout-text">
-        If 0 or 3+ rises for a tube, the crew may check the tube/chute,
-        adjust seed singulation, or reduce vibration/bounce.
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    <div class="card">
+      <h2 class="h2">Interpretation</h2>
+      <ul class="list">
+        <li><b>Ideal (1)</b> should be as high as possible — target ≥ 97%.</li>
+        <li><b>Skip (0)</b> is a missed seed (gap in planting).</li>
+        <li><b>Double (2)</b> wastes seed and can cause crowding.</li>
+        <li><b>Overdrop (3+)</b> is a severe overdrop event.</li>
+      </ul>
+
+      <div class="callout">
+        <div class="callout-title">Operator action</div>
+        <div class="callout-text">
+          If skip or overdrop rates rise for a tube, the crew should check
+          the tube/chute, adjust seed singulation, or reduce vibration.
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="card">
-    <h2 class="h2">Next steps (for your project)</h2>
-    <ol class="list">
-      <li>Replace placeholder summary with computed stats from saved runs.</li>
-      <li>Add per-tube breakdown and trend lines.</li>
-      <li>Add export (CSV) for growers/QA reporting.</li>
-    </ol>
+    <div class="card">
+      <h2 class="h2">Ideal Rate</h2>
+      <div id="idealGauge" class="kpi-value" style="font-size:48px; text-align:center; margin:12px 0;">—</div>
+      <div id="idealStatus" class="small" style="text-align:center;"></div>
+    </div>
   </div>
 </section>
+
+<!-- Per-tube breakdown -->
+<section class="card mt">
+  <div class="row between">
+    <h2 class="h2">Per-Tube Breakdown</h2>
+    <div class="muted small">Cumulative counts per tube</div>
+  </div>
+  <div class="table-container" style="margin-top:12px;">
+    <table class="table" aria-label="Per-tube analytics">
+      <thead>
+        <tr>
+          <th>Tube</th>
+          <th>Skip</th>
+          <th>Ideal</th>
+          <th>Double</th>
+          <th>Overdrop</th>
+          <th>Total</th>
+          <th>Ideal %</th>
+        </tr>
+      </thead>
+      <tbody id="tubeBreakdown"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const COLORS = {
+    skip: "#fb7185",
+    ideal: "#34d399",
+    double: "#fbbf24",
+    overdrop: "#c084fc"
+  };
+
+  const LABELS = {
+    skip: "Skip (0)",
+    ideal: "Ideal (1)",
+    double: "Double (2)",
+    overdrop: "Overdrop (3+)"
+  };
+
+  let selectedRun = "";
+
+  function drawPie(canvas, data) {
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const size = Math.min(canvas.parentElement.clientWidth - 32, 380);
+
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = size + "px";
+    canvas.style.height = size + "px";
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, size, size);
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = (size / 2) - 20;
+    const innerRadius = radius * 0.55;
+
+    const keys = ["ideal", "double", "skip", "overdrop"];
+    const values = keys.map(k => data[k] || 0);
+    const total = values.reduce((a, b) => a + b, 0);
+
+    if (total === 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.arc(cx, cy, innerRadius, 0, Math.PI * 2, true);
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fill();
+
+      ctx.fillStyle = "#9aa7c7";
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("No data yet", cx, cy);
+      ctx.font = "12px system-ui";
+      ctx.fillText("Run the simulator or start a session", cx, cy + 20);
+      return;
+    }
+
+    let startAngle = -Math.PI / 2;
+
+    keys.forEach((key, i) => {
+      if (values[i] === 0) return;
+
+      const sliceAngle = (values[i] / total) * Math.PI * 2;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startAngle, startAngle + sliceAngle);
+      ctx.arc(cx, cy, innerRadius, startAngle + sliceAngle, startAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = COLORS[key];
+      ctx.fill();
+
+      if (sliceAngle > 0.3) {
+        const midAngle = startAngle + sliceAngle / 2;
+        const labelR = (radius + innerRadius) / 2;
+        const lx = cx + Math.cos(midAngle) * labelR;
+        const ly = cy + Math.sin(midAngle) * labelR;
+
+        ctx.fillStyle = "#0b1220";
+        ctx.font = "bold 13px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const pct = ((values[i] / total) * 100).toFixed(1) + "%";
+        ctx.fillText(pct, lx, ly);
+      }
+
+      startAngle += sliceAngle;
+    });
+
+    ctx.fillStyle = "#e7eefc";
+    ctx.font = "bold 22px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(total.toLocaleString(), cx, cy - 6);
+    ctx.fillStyle = "#9aa7c7";
+    ctx.font = "12px system-ui";
+    ctx.fillText("total events", cx, cy + 14);
+  }
+
+  function renderLegend(container, data) {
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
+    container.innerHTML = "";
+
+    ["ideal", "skip", "double", "overdrop"].forEach(key => {
+      const count = data[key] || 0;
+      const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0.0";
+
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex; align-items:center; gap:6px; font-size:12px;";
+      item.innerHTML =
+        '<div style="width:10px;height:10px;border-radius:3px;background:' + COLORS[key] + '"></div>' +
+        '<span style="color:var(--muted)">' + LABELS[key] + " • " + count + " (" + pct + '%)</span>';
+      container.appendChild(item);
+    });
+  }
+
+  function renderTubeBreakdown(tbody, perTube) {
+    tbody.innerHTML = "";
+
+    const tubeIds = Object.keys(perTube).sort((a, b) => Number(a) - Number(b));
+
+    tubeIds.forEach(tubeId => {
+      const t = perTube[tubeId];
+      const total = t.skip + t.ideal + t.double + t.overdrop;
+      const idealPct = total > 0 ? ((t.ideal / total) * 100).toFixed(1) : "—";
+
+      const tr = document.createElement("tr");
+
+      const pctNum = total > 0 ? (t.ideal / total) * 100 : 100;
+      let idealClass = "";
+      if (total > 0 && pctNum < 90) idealClass = ' style="color:var(--bad);font-weight:700"';
+      else if (total > 0 && pctNum < 97) idealClass = ' style="color:var(--warn);font-weight:700"';
+      else if (total > 0) idealClass = ' style="color:var(--ok);font-weight:700"';
+
+      tr.innerHTML =
+        "<td>Tube " + tubeId + "</td>" +
+        "<td>" + t.skip + "</td>" +
+        "<td>" + t.ideal + "</td>" +
+        "<td>" + t.double + "</td>" +
+        "<td>" + t.overdrop + "</td>" +
+        "<td><b>" + total + "</b></td>" +
+        "<td" + idealClass + ">" + idealPct + "%</td>";
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function updateKPIs(totals, percentages) {
+    document.getElementById("kpiSkip").textContent = totals.skip.toLocaleString();
+    document.getElementById("kpiIdeal").textContent = totals.ideal.toLocaleString();
+    document.getElementById("kpiDouble").textContent = totals.double.toLocaleString();
+    document.getElementById("kpiOver").textContent = totals.overdrop.toLocaleString();
+
+    document.getElementById("kpiSkipPct").textContent = percentages.skip + "% of total";
+    document.getElementById("kpiIdealPct").textContent = percentages.ideal + "% of total";
+    document.getElementById("kpiDoublePct").textContent = percentages.double + "% of total";
+    document.getElementById("kpiOverPct").textContent = percentages.overdrop + "% of total";
+  }
+
+  function updateIdealGauge(pct, total) {
+    const gauge = document.getElementById("idealGauge");
+    const status = document.getElementById("idealStatus");
+
+    if (total === 0) {
+      gauge.textContent = "—";
+      gauge.style.color = "var(--muted)";
+      status.textContent = "Waiting for data…";
+      status.style.color = "var(--muted)";
+      return;
+    }
+
+    gauge.textContent = pct.toFixed(1) + "%";
+
+    if (pct >= 97) {
+      gauge.style.color = "var(--ok)";
+      status.innerHTML = '<span style="color:var(--ok)">&#10003; PASSING</span> — above 97% target';
+    } else if (pct >= 90) {
+      gauge.style.color = "var(--warn)";
+      status.innerHTML = '<span style="color:var(--warn)">&#9888; WARNING</span> — below 97% target';
+    } else {
+      gauge.style.color = "var(--bad)";
+      status.innerHTML = '<span style="color:var(--bad)">&#10007; FAILING</span> — significantly below target';
+    }
+  }
+
+  async function loadRuns() {
+    try {
+      const res = await fetch("/api/runs");
+      const runs = await res.json();
+
+      const selector = document.getElementById("runSelector");
+      selector.innerHTML = '<option value="">Current / Live Analytics</option>';
+
+      runs.forEach(run => {
+        const option = document.createElement("option");
+        option.value = run.id;
+
+      const ended = run.ended_at
+        ? new Date(run.ended_at).toLocaleString("en-US", {
+            timeZone: "America/Los_Angeles",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit"
+          })
+        : "Completed Run";
+
+        option.textContent = `Run ${run.id} • ${run.farm_code || "No Farm"} • ${run.profile || "Unknown"} • ${ended}`;
+        selector.appendChild(option);
+      });
+    } catch (e) {
+      console.error("Failed to load runs:", e);
+    }
+  }
+
+  function loadSelectedRun() {
+    selectedRun = document.getElementById("runSelector").value;
+    refresh();
+  }
+
+  const canvas = document.getElementById("pieChart");
+  const legend = document.getElementById("pieLegend");
+  const totalLabel = document.getElementById("totalLabel");
+  const tubeBody = document.getElementById("tubeBreakdown");
+  const sourceIndicator = document.getElementById("sourceIndicator");
+
+  async function refresh() {
+    try {
+      let url = "/api/analytics";
+      if (selectedRun) {
+        url += `?run_id=${selectedRun}`;
+      }
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.source === "archived") {
+        const totals = data.metrics;
+        const grandTotal = data.total || 0;
+        const perTube = data.per_tube || {};
+
+        const percentages = {
+          skip: grandTotal ? ((totals.skip / grandTotal) * 100).toFixed(1) : "0.0",
+          ideal: grandTotal ? ((totals.ideal / grandTotal) * 100).toFixed(1) : "0.0",
+          double: grandTotal ? ((totals.double / grandTotal) * 100).toFixed(1) : "0.0",
+          overdrop: grandTotal ? ((totals.overdrop / grandTotal) * 100).toFixed(1) : "0.0"
+        };
+
+        sourceIndicator.textContent = "Archived Run";
+        sourceIndicator.className = "pill";
+        document.getElementById("resetBtn").disabled = true;
+
+        updateKPIs(totals, percentages);
+        drawPie(canvas, totals);
+        renderLegend(legend, totals);
+        totalLabel.textContent = grandTotal.toLocaleString() + " total events recorded";
+        updateIdealGauge(Number(percentages.ideal), grandTotal);
+        renderTubeBreakdown(tubeBody, perTube);
+        return;
+      }
+
+      document.getElementById("resetBtn").disabled = false;
+
+      if (data.data_source === "sensor") {
+        sourceIndicator.textContent = "Sensor Data";
+        sourceIndicator.className = "pill ok";
+      } else {
+        sourceIndicator.textContent = "Simulated";
+        sourceIndicator.className = "pill";
+      }
+
+      updateKPIs(data.totals, data.percentages);
+      drawPie(canvas, data.totals);
+      renderLegend(legend, data.totals);
+      totalLabel.textContent = data.grand_total.toLocaleString() + " total events recorded";
+      updateIdealGauge(data.percentages.ideal, data.grand_total);
+      renderTubeBreakdown(tubeBody, data.per_tube);
+
+    } catch (e) {
+      sourceIndicator.textContent = "Offline";
+      sourceIndicator.className = "pill";
+      console.error(e);
+    }
+  }
+
+  async function resetAnalytics() {
+    if (selectedRun) {
+      alert("Archived runs cannot be reset.");
+      return;
+    }
+
+    if (!confirm("Reset all analytics counters to zero?")) return;
+    await fetch("/api/analytics/reset", { method: "POST" });
+    refresh();
+  }
+
+  loadRuns();
+  refresh();
+  setInterval(refresh, 2000);
+</script>
 {% endblock %}
