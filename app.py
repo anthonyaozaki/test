@@ -6,10 +6,18 @@ import threading
 import time as time_module
 from datetime import datetime, timezone
 import json
+import math
 
 app = Flask(__name__)
 
 DB_PATH = "seed_validation.db"
+
+
+# ---------- Template Context Processor ----------
+@app.context_processor
+def inject_now():
+    return {"now": datetime.now}
+
 
 # ---------- Monitoring State ----------
 monitoring_state = {
@@ -42,6 +50,46 @@ active_run = {
     "stop_event": None
 }
 
+# ---------- Field Heatmap State ----------
+field_heatmap = {}
+FIELD_CELL_SIZE_X = 8.0
+FIELD_CELL_SIZE_Y = 1.0
+ROW_SPACING = 1.0
+
+# fixed field layout so the field never shifts
+FIELD_TOTAL_COLS = 120
+FIELD_TOTAL_ROWS = 6
+FIELD_TURN_START_COL = 86
+
+planter_state = {
+    "x": 0.0,
+    "speed": 20.0
+}
+
+# fixed tractor path for the L-shaped field
+TRACTOR_PATH_POINTS = [
+    {"x": 0.16, "y": 0.82},
+    {"x": 0.24, "y": 0.82},
+    {"x": 0.32, "y": 0.82},
+    {"x": 0.40, "y": 0.82},
+    {"x": 0.48, "y": 0.82},
+    {"x": 0.56, "y": 0.82},
+    {"x": 0.64, "y": 0.82},
+    {"x": 0.70, "y": 0.82},
+    {"x": 0.73, "y": 0.80},
+    {"x": 0.75, "y": 0.74},
+    {"x": 0.77, "y": 0.66},
+    {"x": 0.79, "y": 0.56},
+    {"x": 0.80, "y": 0.46},
+    {"x": 0.805, "y": 0.36},
+    {"x": 0.81, "y": 0.26},
+    {"x": 0.81, "y": 0.18},
+]
+
+GPS_BASE_LAT = 37.302000
+GPS_BASE_LNG = -120.482000
+
+
 # ---------- Simulator Profiles ----------
 PROFILES = {
     "normal": {
@@ -65,6 +113,7 @@ PROFILES = {
         "weights": [(0, 35), (1, 30), (2, 20), (3, 10), (4, 5)],
     },
 }
+
 
 # ---------- Database Setup ----------
 
@@ -159,8 +208,8 @@ def classify(seed_count):
 
 
 def normalize_seed_event(raw_event):
-    tube_id = raw_event.get("tube_id")
-    seed_count = raw_event.get("seed_count")
+    tube_id = int(raw_event.get("tube_id"))
+    seed_count = int(raw_event.get("seed_count"))
     return {
         "tube_id": tube_id,
         "seed_count": seed_count,
@@ -170,25 +219,126 @@ def normalize_seed_event(raw_event):
 
 
 def reset_run_data():
-    global history, pending_events, data_source, last_event_time
+    global history, pending_events, data_source, last_event_time, field_heatmap
+
     with data_lock:
         for t in tube_data:
             tube_data[t] = 0
-        pending_events = []
-        history = []
+
+        pending_events.clear()
+        history.clear()
         data_source = "idle"
         last_event_time = None
+
         for key in cumulative_metrics:
             cumulative_metrics[key] = 0
+
         for t in per_tube_metrics:
             for key in per_tube_metrics[t]:
                 per_tube_metrics[t][key] = 0
+
+        field_heatmap = {}
+        planter_state["x"] = 0.0
 
 
 def weighted_choice(profile_name):
     choices = PROFILES[profile_name]["weights"]
     values, weights = zip(*choices)
     return random.choices(values, weights=weights, k=1)[0]
+
+
+def get_field_cell(x, y):
+    gx = int(x // FIELD_CELL_SIZE_X)
+    gy = int(y // FIELD_CELL_SIZE_Y)
+    gx = max(0, min(gx, FIELD_TOTAL_COLS - 1))
+    gy = max(0, min(gy, FIELD_TOTAL_ROWS - 1))
+    return gx, gy
+
+
+def update_field_heatmap(event):
+    x = event["x"]
+    y = event["y"]
+    seed_count = event["seed_count"]
+    classification = event["classification"]
+
+    cell = get_field_cell(x, y)
+
+    if cell not in field_heatmap:
+        field_heatmap[cell] = {
+            "seeds": 0,
+            "drops": 0,
+            "skip": 0,
+            "ideal": 0,
+            "double": 0,
+            "overdrop": 0
+        }
+
+    field_heatmap[cell]["seeds"] += seed_count
+    field_heatmap[cell]["drops"] += 1
+    field_heatmap[cell][classification] += 1
+
+
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+
+def get_tractor_state():
+    progress = planter_state["x"] / 10.0
+    segment_count = len(TRACTOR_PATH_POINTS) - 1
+    wrapped_progress = progress % segment_count
+    seg_idx = int(math.floor(wrapped_progress))
+    seg_t = wrapped_progress - seg_idx
+
+    p1 = TRACTOR_PATH_POINTS[seg_idx]
+    p2 = TRACTOR_PATH_POINTS[min(seg_idx + 1, len(TRACTOR_PATH_POINTS) - 1)]
+
+    nx = lerp(p1["x"], p2["x"], seg_t)
+    ny = lerp(p1["y"], p2["y"], seg_t)
+
+    dx = p2["x"] - p1["x"]
+    dy = p2["y"] - p1["y"]
+    heading = (math.degrees(math.atan2(dy, dx)) + 90.0) % 360.0
+
+    lat = GPS_BASE_LAT + (ny - 0.5) * 0.006
+    lng = GPS_BASE_LNG + (nx - 0.5) * 0.008
+
+    return {
+        "nx": round(nx, 4),
+        "ny": round(ny, 4),
+        "heading": round(heading, 1),
+        "lat": round(lat, 6),
+        "lng": round(lng, 6),
+        "speed_mph": round(planter_state["speed"] * 0.22, 1),
+        "gps_accuracy_ft": round(random.uniform(1.8, 4.2), 1),
+        "satellites": random.randint(10, 15)
+    }
+
+
+def field_cell_to_fixed_position(gx, gy):
+    # fixed L-shaped field mapping
+    horiz_x0 = 0.12
+    horiz_x1 = 0.70
+    horiz_y0 = 0.60
+    horiz_y1 = 0.88
+
+    vert_x0 = 0.70
+    vert_x1 = 0.86
+    vert_y0 = 0.16
+    vert_y1 = 0.88
+
+    gx_clamped = max(0, min(gx, FIELD_TOTAL_COLS - 1))
+    gy_clamped = max(0, min(gy, FIELD_TOTAL_ROWS - 1))
+
+    if gx_clamped < FIELD_TURN_START_COL:
+        local_t = gx_clamped / max(FIELD_TURN_START_COL - 1, 1)
+        fx = horiz_x0 + local_t * (horiz_x1 - horiz_x0)
+        fy = horiz_y1 - ((gy_clamped + 0.5) / FIELD_TOTAL_ROWS) * (horiz_y1 - horiz_y0)
+    else:
+        local_t = (gx_clamped - FIELD_TURN_START_COL) / max(FIELD_TOTAL_COLS - FIELD_TURN_START_COL - 1, 1)
+        fx = vert_x0 + ((gy_clamped + 0.5) / FIELD_TOTAL_ROWS) * (vert_x1 - vert_x0)
+        fy = vert_y1 - local_t * (vert_y1 - vert_y0)
+
+    return round(fx, 4), round(fy, 4)
 
 
 # ---------- Background Simulator ----------
@@ -201,12 +351,18 @@ def simulator_worker(stop_event, profile, num_tubes=6):
         for t in range(1, num_tubes + 1)
     }
 
+    last_loop_time = time_module.time()
+
     while not stop_event.is_set():
+        now = time_module.time()
+        dt = now - last_loop_time
+        last_loop_time = now
+
         if monitoring_state["status"] == "paused":
             time_module.sleep(0.1)
             continue
 
-        now = time_module.time()
+        planter_state["x"] += planter_state["speed"] * dt
 
         for tube_id in range(1, num_tubes + 1):
             if now < next_fire[tube_id]:
@@ -219,16 +375,20 @@ def simulator_worker(stop_event, profile, num_tubes=6):
                 "seed_count": seed_count
             })
 
+            normalized["x"] = planter_state["x"]
+            normalized["y"] = (tube_id - 1) * ROW_SPACING
+
             with data_lock:
                 data_source = "sensor"
-                last_event_time = datetime.now()
+                last_event_time = datetime.now(timezone.utc)
                 tube_data[tube_id] = seed_count
                 pending_events.append(normalized)
                 active_run["total_events"] += 1
+                update_field_heatmap(normalized)
 
-            base_interval = random.uniform(0.25, 0.5)
-            jitter = random.gauss(0, 0.05)
-            next_fire[tube_id] = now + max(0.05, base_interval + jitter)
+            base_interval = random.uniform(0.08, 0.18)
+            jitter = random.gauss(0, 0.02)
+            next_fire[tube_id] = now + max(0.03, base_interval + jitter)
 
         time_module.sleep(0.01)
 
@@ -498,7 +658,7 @@ def api_run_status():
 def api_runs_list():
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT id, farm_code, profile, started_at, ended_at
+            SELECT id, farm_code, profile, accuracy, seeds, status, started_at, ended_at
             FROM runs
             WHERE ended_at IS NOT NULL
             ORDER BY ended_at DESC
@@ -521,12 +681,19 @@ def api_seed_event():
     normalized = normalize_seed_event(raw_event)
     tube_id = normalized["tube_id"]
 
+    normalized["x"] = float(raw_event.get("x", planter_state["x"]))
+    normalized["y"] = float(raw_event.get("y", (tube_id - 1) * ROW_SPACING))
+
     with data_lock:
         data_source = "sensor"
         last_event_time = datetime.now(timezone.utc)
+
         if tube_id in tube_data:
             tube_data[tube_id] = normalized["seed_count"]
+
         pending_events.append(normalized)
+        active_run["total_events"] += 1
+        update_field_heatmap(normalized)
 
     return jsonify(normalized)
 
@@ -581,14 +748,73 @@ def api_analytics():
     })
 
 
+@app.route("/api/heatmap", methods=["GET"])
+def api_heatmap():
+    with data_lock:
+        cells = []
+
+        for (gx, gy), data in field_heatmap.items():
+            density = data["seeds"] / max(data["drops"], 1)
+            fx, fy = field_cell_to_fixed_position(gx, gy)
+
+            cells.append({
+                "gx": gx,
+                "gy": gy,
+                "fx": fx,
+                "fy": fy,
+                "density": round(density, 3),
+                "seeds": data["seeds"],
+                "drops": data["drops"],
+                "skip": data["skip"],
+                "ideal": data["ideal"],
+                "double": data["double"],
+                "overdrop": data["overdrop"]
+            })
+
+        tractor = get_tractor_state()
+
+    return jsonify({
+        "cells": cells,
+        "meta": {
+            "cell_size_x": FIELD_CELL_SIZE_X,
+            "cell_size_y": FIELD_CELL_SIZE_Y,
+            "rows": FIELD_TOTAL_ROWS,
+            "cols": FIELD_TOTAL_COLS,
+            "turn_start_col": FIELD_TURN_START_COL,
+            "planter_x": round(planter_state["x"], 2),
+            "field_name": "Bolthouse Field Placeholder",
+            "gps": {
+                "lat": tractor["lat"],
+                "lng": tractor["lng"],
+                "speed_mph": tractor["speed_mph"],
+                "heading": tractor["heading"],
+                "gps_accuracy_ft": tractor["gps_accuracy_ft"],
+                "satellites": tractor["satellites"]
+            },
+            "tractor": {
+                "nx": tractor["nx"],
+                "ny": tractor["ny"],
+                "heading": tractor["heading"]
+            }
+        }
+    })
+
+
 @app.route("/api/analytics/reset", methods=["POST"])
 def api_analytics_reset():
+    global field_heatmap
+
     with data_lock:
         for key in cumulative_metrics:
             cumulative_metrics[key] = 0
+
         for t in per_tube_metrics:
             for key in per_tube_metrics[t]:
                 per_tube_metrics[t][key] = 0
+
+        field_heatmap = {}
+        planter_state["x"] = 0.0
+
     return jsonify({"reset": True})
 
 
@@ -643,7 +869,17 @@ def data():
         for tube_id in tube_data:
             classification = classify(tube_data[tube_id])
             metrics[classification] += 1
+
         events_snapshot = list(pending_events)
+
+        for event in events_snapshot:
+            classification = event["classification"]
+            tube_id = event["tube_id"]
+
+            cumulative_metrics[classification] += 1
+            if tube_id in per_tube_metrics:
+                per_tube_metrics[tube_id][classification] += 1
+
         pending_events = []
 
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -651,14 +887,6 @@ def data():
         "time": timestamp,
         "total": sum(tube_data.values())
     })
-
-    with data_lock:
-        for key in metrics:
-            cumulative_metrics[key] += metrics[key]
-        for tube_id in tube_data:
-            classification = classify(tube_data[tube_id])
-            if tube_id in per_tube_metrics:
-                per_tube_metrics[tube_id][classification] += 1
 
     if len(history) > 100:
         del history[:-50]
