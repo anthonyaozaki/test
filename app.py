@@ -33,6 +33,14 @@ history = []
 data_source = "idle"
 last_event_time = None
 
+# ---------- Fault State ----------
+fault_state = {
+    "active": False,
+    "tube_ids": [],
+    "message": None,
+    "triggered_at": None
+}
+
 # ---------- Cumulative Analytics ----------
 cumulative_metrics = {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0}
 per_tube_metrics = {
@@ -56,7 +64,6 @@ FIELD_CELL_SIZE_X = 8.0
 FIELD_CELL_SIZE_Y = 1.0
 ROW_SPACING = 1.0
 
-# fixed field layout so the field never shifts
 FIELD_TOTAL_COLS = 120
 FIELD_TOTAL_ROWS = 6
 FIELD_TURN_START_COL = 86
@@ -66,7 +73,6 @@ planter_state = {
     "speed": 20.0
 }
 
-# fixed tractor path for the L-shaped field
 TRACTOR_PATH_POINTS = [
     {"x": 0.16, "y": 0.82},
     {"x": 0.24, "y": 0.82},
@@ -116,7 +122,6 @@ PROFILES = {
 
 
 # ---------- Database Setup ----------
-
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -169,7 +174,6 @@ def init_db():
 
 
 # ---------- Helpers ----------
-
 FARM_CODE_RE = re.compile(r"^[A-Za-z]\d{5}$")
 
 
@@ -218,6 +222,27 @@ def normalize_seed_event(raw_event):
     }
 
 
+def clear_fault_state():
+    fault_state["active"] = False
+    fault_state["tube_ids"] = []
+    fault_state["message"] = None
+    fault_state["triggered_at"] = None
+
+
+def trigger_fault_for_tubes(tube_ids):
+    unique_ids = sorted(set(int(t) for t in tube_ids))
+    fault_state["active"] = True
+    fault_state["tube_ids"] = unique_ids
+    fault_state["message"] = (
+        "Monitoring stopped. Tube "
+        + (", ".join(str(t) for t in unique_ids))
+        + (" is" if len(unique_ids) == 1 else " are")
+        + " not outputting seeds."
+    )
+    fault_state["triggered_at"] = datetime.now(timezone.utc).isoformat()
+    monitoring_state["status"] = "paused"
+
+
 def reset_run_data():
     global history, pending_events, data_source, last_event_time, field_heatmap
 
@@ -239,6 +264,7 @@ def reset_run_data():
 
         field_heatmap = {}
         planter_state["x"] = 0.0
+        clear_fault_state()
 
 
 def weighted_choice(profile_name):
@@ -315,7 +341,6 @@ def get_tractor_state():
 
 
 def field_cell_to_fixed_position(gx, gy):
-    # fixed L-shaped field mapping
     horiz_x0 = 0.12
     horiz_x1 = 0.70
     horiz_y0 = 0.60
@@ -342,7 +367,6 @@ def field_cell_to_fixed_position(gx, gy):
 
 
 # ---------- Background Simulator ----------
-
 def simulator_worker(stop_event, profile, num_tubes=6):
     global data_source, last_event_time
 
@@ -394,7 +418,6 @@ def simulator_worker(stop_event, profile, num_tubes=6):
 
 
 # ---------- Pages ----------
-
 @app.route("/")
 def login():
     return render_template("login.html")
@@ -445,7 +468,6 @@ def analytics():
 
 
 # ---------- Farm API ----------
-
 @app.route("/api/farms", methods=["GET"])
 def api_farms_list():
     with get_db() as conn:
@@ -502,7 +524,6 @@ def api_farms_delete(farm_code):
 
 
 # ---------- Run Lifecycle API ----------
-
 @app.route("/api/run/start", methods=["POST"])
 def api_run_start():
     body = request.get_json(silent=True) or {}
@@ -624,6 +645,7 @@ def api_run_stop():
 
     with data_lock:
         data_source = "idle"
+        clear_fault_state()
 
     return jsonify(summary)
 
@@ -648,12 +670,12 @@ def api_run_status():
         "started_at": active_run["started_at"],
         "total_events": active_run["total_events"],
         "elapsed_seconds": elapsed,
-        "monitoring_status": monitoring_state["status"]
+        "monitoring_status": monitoring_state["status"],
+        "fault": dict(fault_state)
     })
 
 
 # ---------- Runs History API ----------
-
 @app.route("/api/runs", methods=["GET"])
 def api_runs_list():
     with get_db() as conn:
@@ -669,7 +691,6 @@ def api_runs_list():
 
 
 # ---------- Seed Event API ----------
-
 @app.route("/api/seed_event", methods=["POST"])
 def api_seed_event():
     global data_source, last_event_time
@@ -699,7 +720,6 @@ def api_seed_event():
 
 
 # ---------- Analytics API ----------
-
 @app.route("/api/analytics", methods=["GET"])
 def api_analytics():
     run_id = request.args.get("run_id")
@@ -814,12 +834,12 @@ def api_analytics_reset():
 
         field_heatmap = {}
         planter_state["x"] = 0.0
+        clear_fault_state()
 
     return jsonify({"reset": True})
 
 
 # ---------- Control API ----------
-
 @app.route("/api/control/pause", methods=["POST"])
 def api_control_pause():
     monitoring_state["status"] = "paused"
@@ -828,17 +848,21 @@ def api_control_pause():
 
 @app.route("/api/control/resume", methods=["POST"])
 def api_control_resume():
+    clear_fault_state()
     monitoring_state["status"] = "running"
     return jsonify({"success": True, "status": "running"})
 
 
 @app.route("/api/control/status", methods=["GET"])
 def api_control_status():
-    return jsonify({"success": True, "status": monitoring_state["status"]})
+    return jsonify({
+        "success": True,
+        "status": monitoring_state["status"],
+        "fault": dict(fault_state)
+    })
 
 
 # ---------- Real-time Data Endpoint ----------
-
 @app.route("/data")
 def data():
     global pending_events
@@ -850,17 +874,22 @@ def data():
             "tubes": {i: 0 for i in range(1, 7)},
             "metrics": {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0},
             "history": [],
-            "events": []
+            "events": [],
+            "fault": dict(fault_state)
         })
 
     if monitoring_state["status"] == "paused":
+        with data_lock:
+            current_tubes = dict(tube_data)
+            current_history = history[-20:]
         return jsonify({
             "monitoring_status": "paused",
             "data_source": data_source,
-            "tubes": tube_data,
+            "tubes": current_tubes,
             "metrics": {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0},
-            "history": history[-20:],
-            "events": []
+            "history": current_history,
+            "events": [],
+            "fault": dict(fault_state)
         })
 
     metrics = {"skip": 0, "ideal": 0, "double": 0, "overdrop": 0}
@@ -881,11 +910,26 @@ def data():
                 per_tube_metrics[tube_id][classification] += 1
 
         pending_events = []
+        tubes_snapshot = dict(tube_data)
+
+    failed_tubes = [tube_id for tube_id, seed_count in tubes_snapshot.items() if seed_count == 0]
+    if failed_tubes:
+        with data_lock:
+            trigger_fault_for_tubes(failed_tubes)
+        return jsonify({
+            "monitoring_status": "paused",
+            "data_source": data_source,
+            "tubes": tubes_snapshot,
+            "metrics": metrics,
+            "history": history[-20:],
+            "events": events_snapshot,
+            "fault": dict(fault_state)
+        })
 
     timestamp = datetime.now().strftime("%H:%M:%S")
     history.append({
         "time": timestamp,
-        "total": sum(tube_data.values())
+        "total": sum(tubes_snapshot.values())
     })
 
     if len(history) > 100:
@@ -894,15 +938,15 @@ def data():
     return jsonify({
         "monitoring_status": "running",
         "data_source": data_source,
-        "tubes": tube_data,
+        "tubes": tubes_snapshot,
         "metrics": metrics,
         "history": history[-20:],
-        "events": events_snapshot
+        "events": events_snapshot,
+        "fault": dict(fault_state)
     })
 
 
 # ---------- Init & Run ----------
-
 init_db()
 
 if __name__ == "__main__":
