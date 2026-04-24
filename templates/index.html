@@ -1,8 +1,10 @@
 {#
   index.html (Live)
-  - Shows run info banner when a run is active.
-  - Pulls live data from /data every second.
-  - End Run button stops the simulator and saves to DB.
+  - Live heatmap
+  - Critical alerts
+  - Tube health highlighting
+  - Live table + history + cumulative bar graph
+  - Fault overlay when a tube outputs 0 seeds
 #}
 {% extends "base.html" %}
 {% set title = "Live • Seed Validation" %}
@@ -50,57 +52,155 @@
     <p class="muted">Real-time sensor data. Updates every 1 second.</p>
   </div>
 
+  <!-- Critical Alerts -->
+  <section class="card" style="margin-bottom:16px;">
+    <div class="row between" style="align-items:flex-start;">
+      <div>
+        <h2 class="h2">Critical Alerts</h2>
+        <p class="muted small" style="margin-top:4px;">
+          Recent urgent issues that need operator attention right now.
+        </p>
+      </div>
+      <div class="pill warn" id="alertSummaryPill">Monitoring</div>
+    </div>
+    <div id="tubeAlerts" style="display:flex; flex-direction:column; gap:8px; margin-top:14px; min-height:220px; max-height:220px; overflow-y:auto;"></div>
+  </section>
+
+  <!-- Live Heatmap -->
+  <section class="card" style="margin-bottom:16px;">
+    <div class="row between" style="align-items:flex-start;">
+      <div>
+        <h2 class="h2">Live Field Planting Density Map</h2>
+        <p class="muted small" style="margin-top:4px;">
+          Fixed field map with a moving tractor. Colored cells are only placed where planting has already occurred.
+        </p>
+      </div>
+      <div class="row" style="gap:10px;">
+        <div class="pill" id="heatmapMetaPill">Waiting…</div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px; display:grid; grid-template-columns: 1fr 220px; gap:16px; align-items:start;">
+      <div>
+        <canvas id="fieldHeatmap" width="900" height="380" class="canvas"></canvas>
+        <div class="small muted" style="margin-top:8px;">
+          The field stays fixed. The tractor shows the current live position. The colored cells remain where the planting already happened.
+        </div>
+      </div>
+
+      <div class="card" style="padding:16px;">
+        <h3 style="margin:0 0 12px; font-size:15px;">Live GPS Placeholder</h3>
+
+        <div style="display:grid; grid-template-columns:1fr; gap:8px; margin-bottom:14px;">
+          <div class="small muted"><b>Lat:</b> <span id="gpsLat">—</span></div>
+          <div class="small muted"><b>Lng:</b> <span id="gpsLng">—</span></div>
+          <div class="small muted"><b>Speed:</b> <span id="gpsSpeed">—</span></div>
+          <div class="small muted"><b>Heading:</b> <span id="gpsHeading">—</span></div>
+          <div class="small muted"><b>Accuracy:</b> <span id="gpsAccuracy">—</span></div>
+          <div class="small muted"><b>Satellites:</b> <span id="gpsSatellites">—</span></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <h3 style="margin:0 0 12px; font-size:15px;">Density Legend</h3>
+
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:16px; height:16px; border-radius:4px; background:#ef4444;"></div>
+            <span class="small muted">Low density / skips</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:16px; height:16px; border-radius:4px; background:#f59e0b;"></div>
+            <span class="small muted">Below target</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:16px; height:16px; border-radius:4px; background:#eab308;"></div>
+            <span class="small muted">Near target</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:16px; height:16px; border-radius:4px; background:#84cc16;"></div>
+            <span class="small muted">Dense</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div style="width:16px; height:16px; border-radius:4px; background:#16a34a;"></div>
+            <span class="small muted">Very dense / over-seeding</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="small muted">
+          First-time viewer logic: the tractor icon is where the planter is now, and the colored part behind it shows what has already been planted.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- KPIs -->
   <section class="grid-4">
     <div class="card kpi">
       <div class="kpi-label">Skip (0)</div>
       <div id="kpiSkip" class="kpi-value">0</div>
-      <div class="kpi-note muted">Tube reported 0</div>
+      <div class="kpi-note muted">Current tube states showing 0</div>
     </div>
     <div class="card kpi">
       <div class="kpi-label">Ideal (1)</div>
       <div id="kpiIdeal" class="kpi-value">0</div>
-      <div class="kpi-note muted">Tube reported 1</div>
+      <div class="kpi-note muted">Current tube states showing 1</div>
     </div>
     <div class="card kpi">
       <div class="kpi-label">Double (2)</div>
       <div id="kpiDouble" class="kpi-value">0</div>
-      <div class="kpi-note muted">Tube reported 2</div>
+      <div class="kpi-note muted">Current tube states showing 2</div>
     </div>
     <div class="card kpi">
       <div class="kpi-label">Overdrop (&gt;2)</div>
       <div id="kpiOver" class="kpi-value">0</div>
-      <div class="kpi-note muted">Tube reported 3+</div>
+      <div class="kpi-note muted">Current tube states showing 3+</div>
     </div>
   </section>
 
+  <!-- Tube Health + History -->
   <section class="grid-2 mt">
     <div class="card">
       <div class="row between">
-        <h2 class="h2">Per-tube counts</h2>
+        <div>
+          <h2 class="h2">Tube Health Monitor</h2>
+          <p class="muted small" style="margin-top:4px;">
+            Current tube state plus recent health behavior.
+          </p>
+        </div>
         <div class="pill" id="liveStatus">Connecting…</div>
       </div>
 
       <div class="table-container" style="margin-top:12px;">
-        <table class="table" aria-label="Tube counts table">
+        <table class="table" aria-label="Tube health table">
           <thead>
-            <tr><th>Tube</th><th>Seed Count</th><th>Bucket</th></tr>
+            <tr>
+              <th>Tube</th>
+              <th>Seed Count</th>
+              <th>Current Bucket</th>
+              <th>Health</th>
+              <th>Recent Pattern</th>
+            </tr>
           </thead>
           <tbody id="tubeTable"></tbody>
         </table>
       </div>
 
       <p class="small muted mt">
-        Buckets: 0 = <b>skip</b>, 1 = <b>ideal</b>, 2 = <b>double</b>, 3+ = <b>overdrop</b>
+        Tube health is based on recent behavior, so it helps show which physical tube needs attention right now.
       </p>
     </div>
 
     <div class="card">
-      <h2 class="h2">Total seeds over time</h2>
+      <h2 class="h2">Total Seeds Over Time</h2>
       <p class="muted small">Last 20 updates (1 second interval).</p>
       <canvas id="historyChart" width="700" height="260" class="canvas"></canvas>
     </div>
   </section>
 
+  <!-- Bar Graph -->
   <section class="card mt">
     <div class="row between">
       <h2 class="h2">Per-Tube Classification Breakdown</h2>
@@ -128,8 +228,37 @@
   </section>
 </div>
 
+<!-- Fault Overlay -->
+<div id="faultOverlay" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(127, 29, 29, 0.96); color:white; padding:32px;">
+  <div style="max-width:760px; margin:8vh auto 0; text-align:center;">
+    <div style="font-size:64px; line-height:1;">🛑</div>
+    <h1 style="margin-top:16px; font-size:40px; color:white;">Planting Fault Detected</h1>
+    <p id="faultMessage" style="font-size:20px; margin-top:14px; line-height:1.6; color:rgba(255,255,255,0.92);">
+      Monitoring stopped due to a non-functional tube.
+    </p>
+
+    <div style="margin-top:24px; display:inline-block; padding:16px 22px; border:1px solid rgba(255,255,255,0.18); border-radius:18px; background:rgba(255,255,255,0.08); text-align:left;">
+      <div style="font-size:13px; letter-spacing:0.04em; text-transform:uppercase; opacity:0.8;">Affected Tube(s)</div>
+      <div id="faultTubeList" style="font-size:28px; font-weight:800; margin-top:6px;">—</div>
+    </div>
+
+    <p style="margin-top:22px; font-size:16px; color:rgba(255,255,255,0.86);">
+      Check the planter, confirm the issue, then resume the live screen.
+    </p>
+
+    <div style="margin-top:28px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+      <button class="btn" style="background:white; color:#7f1d1d; border:none;" onclick="acknowledgeFaultAndResume()">
+        Resume Live Screen
+      </button>
+      <button class="btn" style="background:rgba(255,255,255,0.08); color:white; border:1px solid rgba(255,255,255,0.22);" onclick="hideFaultOverlayOnly()">
+        Keep Screen Paused
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Run Summary Modal -->
-<div id="summaryOverlay" style="display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.6); display:none; place-items:center;">
+<div id="summaryOverlay" style="display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.6); place-items:center;">
   <div class="card" style="max-width:500px; width:90%; margin:auto; margin-top:15vh;">
     <h2 class="h2">Run Complete</h2>
     <div class="divider"></div>
@@ -162,7 +291,248 @@
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  // ──── Chart Drawing ────
+  // ---------- Alerts ----------
+  var ALERT_CONFIG = {
+    skip: {
+      icon: "⚠",
+      label: "Skip Risk",
+      color: "#fb7185",
+      bg: "rgba(251,113,133,0.12)",
+      border: "rgba(251,113,133,0.35)",
+      action: "Check singulation or possible blockage."
+    },
+    overdrop: {
+      icon: "🚨",
+      label: "Overdrop Risk",
+      color: "#c084fc",
+      bg: "rgba(192,132,252,0.12)",
+      border: "rgba(192,132,252,0.35)",
+      action: "Inspect seed release and reduce excessive feed."
+    },
+    double: {
+      icon: "⚠",
+      label: "Double Trend",
+      color: "#f59e0b",
+      bg: "rgba(245,158,11,0.12)",
+      border: "rgba(245,158,11,0.35)",
+      action: "Watch tube performance for repeated doubles."
+    }
+  };
+
+  // ---------- Tube Health ----------
+  var HEALTH_STYLE = {
+    healthy: {
+      label: "Healthy",
+      badgeBg: "rgba(16,185,129,0.12)",
+      badgeColor: "#047857",
+      rowBg: "rgba(16,185,129,0.05)",
+      rowBorder: "#10b981",
+      glow: "none"
+    },
+    watch: {
+      label: "Watch",
+      badgeBg: "rgba(245,158,11,0.14)",
+      badgeColor: "#b45309",
+      rowBg: "rgba(245,158,11,0.06)",
+      rowBorder: "#f59e0b",
+      glow: "0 0 0 1px rgba(245,158,11,0.18) inset"
+    },
+    critical: {
+      label: "Critical",
+      badgeBg: "rgba(239,68,68,0.14)",
+      badgeColor: "#b91c1c",
+      rowBg: "rgba(239,68,68,0.07)",
+      rowBorder: "#ef4444",
+      glow: "0 0 0 1px rgba(239,68,68,0.2) inset"
+    }
+  };
+
+  var tubeRecentEvents = {};
+  var MAX_RECENT_EVENTS_PER_TUBE = 6;
+  var MAX_ALERT_AGE_MS = 15000;
+
+  function initTubeRecentStore() {
+    for (var i = 1; i <= 6; i++) {
+      if (!tubeRecentEvents[i]) {
+        tubeRecentEvents[i] = [];
+      }
+    }
+  }
+
+  function ingestRecentEvents(events) {
+    initTubeRecentStore();
+
+    (events || []).forEach(function(ev) {
+      var tubeId = Number(ev.tube_id);
+      if (!tubeRecentEvents[tubeId]) {
+        tubeRecentEvents[tubeId] = [];
+      }
+
+      tubeRecentEvents[tubeId].push({
+        classification: ev.classification,
+        timestamp: Date.now()
+      });
+
+      if (tubeRecentEvents[tubeId].length > MAX_RECENT_EVENTS_PER_TUBE) {
+        tubeRecentEvents[tubeId] = tubeRecentEvents[tubeId].slice(-MAX_RECENT_EVENTS_PER_TUBE);
+      }
+    });
+
+    pruneOldEvents();
+  }
+
+  function pruneOldEvents() {
+    var cutoff = Date.now() - MAX_ALERT_AGE_MS;
+    Object.keys(tubeRecentEvents).forEach(function(tubeId) {
+      tubeRecentEvents[tubeId] = (tubeRecentEvents[tubeId] || []).filter(function(item) {
+        return item.timestamp >= cutoff;
+      });
+    });
+  }
+
+  function getTubeHealth(tubeId) {
+    var recent = tubeRecentEvents[tubeId] || [];
+
+    var skipCount = recent.filter(function(e) { return e.classification === "skip"; }).length;
+    var overdropCount = recent.filter(function(e) { return e.classification === "overdrop"; }).length;
+    var doubleCount = recent.filter(function(e) { return e.classification === "double"; }).length;
+
+    if (overdropCount >= 2 || skipCount >= 3) return "critical";
+    if (overdropCount >= 1 || skipCount >= 1 || doubleCount >= 2) return "watch";
+    return "healthy";
+  }
+
+  function getRecentPatternText(tubeId) {
+    var recent = tubeRecentEvents[tubeId] || [];
+    if (!recent.length) return "Stable";
+
+    var skipCount = recent.filter(function(e) { return e.classification === "skip"; }).length;
+    var overdropCount = recent.filter(function(e) { return e.classification === "overdrop"; }).length;
+    var doubleCount = recent.filter(function(e) { return e.classification === "double"; }).length;
+
+    if (overdropCount >= 2) return overdropCount + " recent overdrops";
+    if (skipCount >= 3) return skipCount + " recent skips";
+    if (overdropCount >= 1) return "Recent overdrop detected";
+    if (skipCount >= 1) return "Recent skip detected";
+    if (doubleCount >= 2) return doubleCount + " recent doubles";
+    if (doubleCount === 1) return "Single double observed";
+    return "Stable";
+  }
+
+  function renderHealthBadge(health) {
+    var style = HEALTH_STYLE[health] || HEALTH_STYLE.healthy;
+    return (
+      '<span style="' +
+      'display:inline-flex;align-items:center;justify-content:center;' +
+      'min-width:88px;padding:6px 10px;border-radius:999px;' +
+      'font-size:12px;font-weight:800;' +
+      'background:' + style.badgeBg + ';' +
+      'color:' + style.badgeColor + ';">' +
+      style.label +
+      '</span>'
+    );
+  }
+
+  function renderBucketBadge(bucket) {
+    return '<span class="badge ' + bucket + '">' + bucket + '</span>';
+  }
+
+  function renderAlerts(monitoringStatus) {
+    var container = document.getElementById("tubeAlerts");
+    var summaryPill = document.getElementById("alertSummaryPill");
+    if (!container || !summaryPill) return;
+
+    pruneOldEvents();
+
+    if (monitoringStatus === "paused") {
+      summaryPill.textContent = "Paused";
+      summaryPill.className = "pill warn";
+      container.innerHTML =
+        '<div style="padding:12px 16px; border-radius:14px; border:1px solid rgba(245,158,11,0.30); background:rgba(245,158,11,0.10); color:#b45309; font-size:14px;">' +
+        '<b>Monitoring paused.</b> Live alerts are temporarily frozen until the run resumes.' +
+        '</div>';
+      return;
+    }
+
+    var alertItems = [];
+
+    Object.keys(tubeRecentEvents).forEach(function(tubeId) {
+      var recent = tubeRecentEvents[tubeId] || [];
+      if (!recent.length) return;
+
+      var skipCount = recent.filter(function(e) { return e.classification === "skip"; }).length;
+      var overdropCount = recent.filter(function(e) { return e.classification === "overdrop"; }).length;
+      var doubleCount = recent.filter(function(e) { return e.classification === "double"; }).length;
+
+      if (overdropCount >= 1) {
+        alertItems.push({
+          tubeId: tubeId,
+          type: "overdrop",
+          severity: 3,
+          message: overdropCount + " recent overdrop event" + (overdropCount > 1 ? "s" : "")
+        });
+      }
+
+      if (skipCount >= 2) {
+        alertItems.push({
+          tubeId: tubeId,
+          type: "skip",
+          severity: 2,
+          message: skipCount + " recent skip events"
+        });
+      }
+
+      if (doubleCount >= 3) {
+        alertItems.push({
+          tubeId: tubeId,
+          type: "double",
+          severity: 1,
+          message: doubleCount + " repeated double events"
+        });
+      }
+    });
+
+    alertItems.sort(function(a, b) {
+      return b.severity - a.severity;
+    });
+
+    if (!alertItems.length) {
+      summaryPill.textContent = "No Critical Issues";
+      summaryPill.className = "pill ok";
+      container.innerHTML =
+        '<div style="padding:12px 16px; border-radius:14px; border:1px solid rgba(16,185,129,0.25); background:rgba(16,185,129,0.08); color:#047857; font-size:14px;">' +
+        '<b>All clear.</b> No urgent recent tube issues detected.' +
+        '</div>';
+      return;
+    }
+
+    summaryPill.textContent = alertItems.length + " Active Alert" + (alertItems.length > 1 ? "s" : "");
+    summaryPill.className = "pill warn";
+
+    container.innerHTML = alertItems.slice(0, 4).map(function(item) {
+      var cfg = ALERT_CONFIG[item.type];
+      return (
+        '<div style="' +
+          'display:flex; align-items:flex-start; gap:12px; padding:12px 16px;' +
+          'border-radius:14px; border:1px solid ' + cfg.border + '; background:' + cfg.bg + ';">' +
+          '<div style="font-size:18px; line-height:1;">' + cfg.icon + '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; color:' + cfg.color + '; font-size:13px; text-transform:uppercase; letter-spacing:0.03em;">' +
+              cfg.label + ' • Tube ' + item.tubeId +
+            '</div>' +
+            '<div style="margin-top:4px; color:var(--text); font-size:14px;">' +
+              item.message +
+            '</div>' +
+            '<div style="margin-top:4px; color:var(--muted); font-size:12px;">' +
+              cfg.action +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+  }
+
+  // ---------- History Chart ----------
   function drawHistory(canvas, points) {
     var ctx = canvas.getContext("2d");
     var w = canvas.width;
@@ -210,11 +580,11 @@
     ctx.fillText(String(minV), 6, h - pad);
   }
 
-  // ──── Per-Tube Bar Chart ────
+  // ---------- Bar Graph ----------
   var BAR_COLORS = {
-    ideal:    "#34d399",
-    skip:     "#fb7185",
-    double:   "#fbbf24",
+    ideal: "#34d399",
+    skip: "#fb7185",
+    double: "#fbbf24",
     overdrop: "#c084fc"
   };
 
@@ -228,6 +598,7 @@
     canvas.height = displayH * dpr;
     canvas.style.width = displayW + "px";
     canvas.style.height = displayH + "px";
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
 
     ctx.clearRect(0, 0, displayW, displayH);
@@ -245,7 +616,6 @@
       return;
     }
 
-    // Find max value for scaling
     var maxVal = 1;
     tubeIds.forEach(function(t) {
       categories.forEach(function(cat) {
@@ -258,7 +628,6 @@
     var chartW = displayW - pad.left - pad.right;
     var chartH = displayH - pad.top - pad.bottom;
 
-    // Draw axes
     ctx.strokeStyle = "#263353";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -267,28 +636,6 @@
     ctx.lineTo(pad.left + chartW, pad.top + chartH);
     ctx.stroke();
 
-    // Y-axis labels
-    ctx.fillStyle = "#9aa7c7";
-    ctx.font = "11px system-ui";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    var ySteps = 4;
-    for (var i = 0; i <= ySteps; i++) {
-      var yVal = Math.round((maxVal / ySteps) * i);
-      var yPos = pad.top + chartH - (i / ySteps) * chartH;
-      ctx.fillText(String(yVal), pad.left - 8, yPos);
-
-      // Grid line
-      if (i > 0) {
-        ctx.strokeStyle = "rgba(255,255,255,0.04)";
-        ctx.beginPath();
-        ctx.moveTo(pad.left, yPos);
-        ctx.lineTo(pad.left + chartW, yPos);
-        ctx.stroke();
-      }
-    }
-
-    // Bar groups
     var numTubes = tubeIds.length;
     var groupWidth = chartW / numTubes;
     var barWidth = (groupWidth * 0.7) / categories.length;
@@ -303,54 +650,316 @@
         var x = groupX + bi * barWidth;
         var y = pad.top + chartH - barH;
 
-        // Bar
         ctx.fillStyle = BAR_COLORS[cat];
-        ctx.beginPath();
-        // Rounded top corners
-        var r = Math.min(3, barWidth / 2);
-        if (barH > r * 2) {
-          ctx.moveTo(x, y + r);
-          ctx.arcTo(x, y, x + barWidth - 1, y, r);
-          ctx.arcTo(x + barWidth - 1, y, x + barWidth - 1, y + barH, r);
-          ctx.lineTo(x + barWidth - 1, pad.top + chartH);
-          ctx.lineTo(x, pad.top + chartH);
-        } else if (barH > 0) {
-          ctx.rect(x, y, barWidth - 1, barH);
-        }
-        ctx.fill();
-
-        // Value label on top of bar (if tall enough)
-        if (barH > 18 && val > 0) {
-          ctx.fillStyle = "#0b1220";
-          ctx.font = "bold 10px system-ui";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText(String(val), x + (barWidth - 1) / 2, y + barH - 3);
-        }
+        ctx.fillRect(x, y, barWidth - 1, barH);
       });
 
-      // Tube label
       ctx.fillStyle = "#9aa7c7";
       ctx.font = "12px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText("Tube " + tubeId, pad.left + gi * groupWidth + groupWidth / 2, pad.top + chartH + 8);
-
-      // Ideal % below tube label
-      var tubeData = perTube[tubeId];
-      var tubeTotal = (tubeData.skip || 0) + (tubeData.ideal || 0) + (tubeData.double || 0) + (tubeData.overdrop || 0);
-      if (tubeTotal > 0) {
-        var idealPct = ((tubeData.ideal / tubeTotal) * 100).toFixed(0) + "%";
-        var pctColor = (tubeData.ideal / tubeTotal) >= 0.97 ? "#34d399" :
-                       (tubeData.ideal / tubeTotal) >= 0.90 ? "#fbbf24" : "#fb7185";
-        ctx.fillStyle = pctColor;
-        ctx.font = "bold 11px system-ui";
-        ctx.fillText(idealPct, pad.left + gi * groupWidth + groupWidth / 2, pad.top + chartH + 22);
-      }
     });
   }
 
-  // ──── DOM refs ────
+  // ---------- Live Heatmap ----------
+  function densityColor(density) {
+    if (density < 0.7) return "#ef4444";
+    if (density < 0.95) return "#f59e0b";
+    if (density <= 1.1) return "#eab308";
+    if (density <= 1.4) return "#84cc16";
+    return "#16a34a";
+  }
+
+  function drawStableFieldBackground(ctx, x, y, w, h) {
+    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, "#5d764d");
+    grad.addColorStop(0.5, "#728a5c");
+    grad.addColorStop(1, "#536b45");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+
+    for (let row = 0; row < 6; row++) {
+      for (let col = 0; col < 12; col++) {
+        const px = x + col * (w / 12) + ((row % 2) * 7);
+        const py = y + row * (h / 6) + ((col % 3) * 3);
+        const rw = w / 16;
+        const rh = h / 13;
+        const alpha = 0.03 + (((row + col) % 4) * 0.015);
+        ctx.fillStyle = "rgba(255,255,190," + alpha + ")";
+        ctx.fillRect(px, py, rw, rh);
+      }
+    }
+
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+
+    for (let gx = 0; gx < 8; gx++) {
+      const xx = x + (gx / 7) * w;
+      ctx.beginPath();
+      ctx.moveTo(xx, y);
+      ctx.lineTo(xx, y + h);
+      ctx.stroke();
+    }
+
+    for (let gy = 0; gy < 6; gy++) {
+      const yy = y + (gy / 5) * h;
+      ctx.beginPath();
+      ctx.moveTo(x, yy);
+      ctx.lineTo(x + w, yy);
+      ctx.stroke();
+    }
+  }
+
+  function drawFixedFieldOutline(ctx, mapX, mapY, mapW, mapH) {
+    const x0 = mapX + mapW * 0.12;
+    const xTurn = mapX + mapW * 0.70;
+    const x1 = mapX + mapW * 0.86;
+
+    const yTop = mapY + mapH * 0.16;
+    const yBottom = mapY + mapH * 0.88;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x0, yBottom);
+    ctx.lineTo(xTurn, yBottom);
+    ctx.lineTo(xTurn, yTop);
+    ctx.lineTo(x1, yTop);
+    ctx.lineTo(x1, yBottom);
+    ctx.lineTo(x0, yBottom);
+    ctx.closePath();
+
+    ctx.fillStyle = "rgba(61, 95, 50, 0.55)";
+    ctx.fill();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFixedHeatCells(ctx, cells, mapX, mapY, mapW, mapH) {
+    if (!cells.length) return;
+
+    const cellW = 8;
+    const cellH = 24;
+
+    cells.forEach(function(cell) {
+      if (cell.fx == null || cell.fy == null) return;
+
+      const x = mapX + cell.fx * mapW - cellW / 2;
+      const y = mapY + cell.fy * mapH - cellH / 2;
+
+      ctx.fillStyle = densityColor(cell.density);
+      ctx.globalAlpha = 0.86;
+      ctx.fillRect(x, y, cellW, cellH);
+
+      ctx.strokeStyle = "rgba(255,255,255,0.07)";
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, y, cellW, cellH);
+    });
+
+    ctx.globalAlpha = 1;
+  }
+
+  function drawFixedTractorPath(ctx, mapX, mapY, mapW, mapH) {
+    const path = [
+      [0.16, 0.82], [0.24, 0.82], [0.32, 0.82], [0.40, 0.82],
+      [0.48, 0.82], [0.56, 0.82], [0.64, 0.82], [0.70, 0.82],
+      [0.73, 0.80], [0.75, 0.74], [0.77, 0.66], [0.79, 0.56],
+      [0.80, 0.46], [0.805, 0.36], [0.81, 0.26], [0.81, 0.18]
+    ];
+
+    ctx.save();
+    ctx.setLineDash([8, 8]);
+    ctx.strokeStyle = "rgba(255,255,255,0.72)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    path.forEach(function(p, i) {
+      const px = mapX + p[0] * mapW;
+      const py = mapY + p[1] * mapH;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTractor(ctx, tx, ty, headingDeg) {
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate((headingDeg * Math.PI) / 180);
+
+    ctx.beginPath();
+    ctx.fillStyle = "#20311d";
+    ctx.arc(-12, 14, 8, 0, Math.PI * 2);
+    ctx.arc(14, 16, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#3bb34a";
+    ctx.fillRect(-15, -5, 26, 18);
+
+    ctx.fillStyle = "#7bdc65";
+    ctx.fillRect(-2, -18, 11, 11);
+
+    ctx.fillStyle = "#254f1d";
+    ctx.fillRect(10, -1, 8, 6);
+
+    ctx.restore();
+  }
+
+  function drawGpsSignal(ctx, tx, ty) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.78)";
+    ctx.lineWidth = 2;
+    for (let i = 1; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.arc(tx + 14, ty - 16, i * 6, -0.8, 0.4);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHeatLegend(ctx, x, y) {
+    ctx.fillStyle = "rgba(15,23,42,0.7)";
+    ctx.fillRect(x, y, 24, 150);
+
+    const grad = ctx.createLinearGradient(0, y + 132, 0, y + 10);
+    grad.addColorStop(0, "#ef4444");
+    grad.addColorStop(0.25, "#f59e0b");
+    grad.addColorStop(0.5, "#eab308");
+    grad.addColorStop(0.75, "#84cc16");
+    grad.addColorStop(1, "#16a34a");
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(x + 6, y + 10, 12, 122);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "11px Inter, system-ui";
+    ctx.fillText("High", x - 4, y - 4);
+    ctx.fillText("Low", x - 2, y + 145);
+  }
+
+  function updateGpsPanel(meta) {
+    const gps = (meta && meta.gps) || {};
+
+    setText("gpsLat", gps.lat != null ? gps.lat : "—");
+    setText("gpsLng", gps.lng != null ? gps.lng : "—");
+    setText("gpsSpeed", gps.speed_mph != null ? gps.speed_mph + " mph" : "—");
+    setText("gpsHeading", gps.heading != null ? gps.heading + "°" : "—");
+    setText("gpsAccuracy", gps.gps_accuracy_ft != null ? gps.gps_accuracy_ft + " ft" : "—");
+    setText("gpsSatellites", gps.satellites != null ? gps.satellites : "—");
+  }
+
+  function drawFieldHeatmap(canvas, cells, meta) {
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+
+    const displayW = canvas.parentElement.clientWidth - 32;
+    const displayH = 380;
+
+    canvas.width = displayW * dpr;
+    canvas.height = displayH * dpr;
+    canvas.style.width = displayW + "px";
+    canvas.style.height = displayH + "px";
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, displayW, displayH);
+
+    const pad = 18;
+    const mapX = pad;
+    const mapY = pad;
+    const mapW = displayW - pad * 2;
+    const mapH = displayH - pad * 2;
+
+    drawStableFieldBackground(ctx, mapX, mapY, mapW, mapH);
+    drawFixedFieldOutline(ctx, mapX, mapY, mapW, mapH);
+    drawFixedHeatCells(ctx, cells, mapX, mapY, mapW, mapH);
+    drawFixedTractorPath(ctx, mapX, mapY, mapW, mapH);
+
+    if (meta && meta.tractor) {
+      const tx = mapX + meta.tractor.nx * mapW;
+      const ty = mapY + meta.tractor.ny * mapH;
+      drawTractor(ctx, tx, ty, meta.tractor.heading || 0);
+      drawGpsSignal(ctx, tx, ty);
+    }
+
+    ctx.fillStyle = "rgba(15,23,42,0.82)";
+    ctx.fillRect(mapX + 14, mapY + 14, 205, 52);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 15px Inter, system-ui";
+    ctx.fillText("Live Planting Field Map", mapX + 26, mapY + 34);
+    ctx.fillStyle = "rgba(255,255,255,0.74)";
+    ctx.font = "12px Inter, system-ui";
+    ctx.fillText((meta && meta.field_name) ? meta.field_name : "Placeholder", mapX + 26, mapY + 52);
+
+    drawHeatLegend(ctx, mapX + mapW - 26, mapY + 58);
+  }
+
+  // ---------- Fault Overlay ----------
+  function showFaultOverlay(fault) {
+    var overlay = document.getElementById("faultOverlay");
+    var faultMessage = document.getElementById("faultMessage");
+    var faultTubeList = document.getElementById("faultTubeList");
+    if (!overlay || !fault || !fault.active) return;
+
+    var tubeIds = fault.tube_ids || [];
+    faultMessage.textContent = fault.message || "Monitoring stopped because a tube is not functional.";
+    faultTubeList.textContent = tubeIds.length ? tubeIds.map(function(t) { return "Tube " + t; }).join(", ") : "Unknown";
+
+    overlay.style.display = "block";
+  }
+
+  function hideFaultOverlayOnly() {
+    var overlay = document.getElementById("faultOverlay");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  async function acknowledgeFaultAndResume() {
+    await resumeRun();
+    hideFaultOverlayOnly();
+  }
+
+  // ---------- Tube Table ----------
+  function renderTubeTable(tubes) {
+    if (!tubeTable || !tubes) return;
+
+    tubeTable.innerHTML = "";
+
+    Object.entries(tubes).forEach(function(entry) {
+      var tube = Number(entry[0]);
+      var count = entry[1];
+      var bucket = bucketLabel(count);
+      var health = getTubeHealth(tube);
+      var style = HEALTH_STYLE[health];
+      var patternText = getRecentPatternText(tube);
+
+      if (count === 0) {
+        health = "critical";
+        style = HEALTH_STYLE.critical;
+        patternText = "No seed output detected";
+      }
+
+      var tr = document.createElement("tr");
+      tr.style.background = style.rowBg;
+      tr.style.borderLeft = "4px solid " + style.rowBorder;
+      tr.style.boxShadow = style.glow;
+
+      tr.innerHTML =
+        "<td><b>Tube " + tube + "</b></td>" +
+        "<td>" + count + "</td>" +
+        "<td>" + renderBucketBadge(bucket) + "</td>" +
+        "<td>" + renderHealthBadge(health) + "</td>" +
+        "<td class='muted small'>" + patternText + "</td>";
+
+      tubeTable.appendChild(tr);
+    });
+  }
+
+  // ---------- DOM refs ----------
   var tubeTable = document.getElementById("tubeTable");
   var statusPill = document.getElementById("liveStatus");
   var chart = document.getElementById("historyChart");
@@ -358,18 +967,34 @@
   var runBanner = document.getElementById("runBanner");
   var noRunBanner = document.getElementById("noRunBanner");
   var liveContent = document.getElementById("liveContent");
+  var fieldHeatmapEl = document.getElementById("fieldHeatmap");
+  var heatmapMetaPill = document.getElementById("heatmapMetaPill");
 
-  var isRunActive = false;
   var tickInterval = null;
 
-  // ──── Check run status and set up page ────
+  async function loadLiveHeatmap() {
+    try {
+      const res = await fetch("/api/heatmap");
+      const data = await res.json();
+      drawFieldHeatmap(fieldHeatmapEl, data.cells || [], data.meta || {});
+      updateGpsPanel(data.meta || {});
+
+      const cellCount = (data.cells || []).length;
+      const rows = data.meta?.rows || 0;
+      const planterX = data.meta?.planter_x || 0;
+      heatmapMetaPill.textContent = `${cellCount} cells • ${rows} rows • x=${planterX}`;
+    } catch (e) {
+      heatmapMetaPill.textContent = "Heatmap offline";
+      console.error("Live heatmap load failed:", e);
+    }
+  }
+
   async function initPage() {
     try {
       var res = await fetch("/api/run/status");
       var data = await res.json();
 
       if (data.active) {
-        isRunActive = true;
         runBanner.style.display = "block";
         noRunBanner.style.display = "none";
         liveContent.style.display = "block";
@@ -381,17 +1006,19 @@
           setText("runElapsed", formatElapsed(data.elapsed_seconds));
         }
 
-        // Update pause/resume button state
         if (data.monitoring_status === "paused") {
           document.getElementById("pauseBtn").style.display = "none";
           document.getElementById("resumeBtn").style.display = "inline-flex";
         }
 
-        // Start polling
+        if (data.fault && data.fault.active) {
+          showFaultOverlay(data.fault);
+        }
+
+        initTubeRecentStore();
         tick();
         tickInterval = setInterval(tick, 1000);
       } else {
-        isRunActive = false;
         runBanner.style.display = "none";
         noRunBanner.style.display = "block";
         liveContent.style.display = "none";
@@ -402,10 +1029,8 @@
     }
   }
 
-  // ──── Tick: fetch live data ────
   async function tick() {
     try {
-      // Update run status
       var statusRes = await fetch("/api/run/status");
       var statusData = await statusRes.json();
       setText("runEvents", statusData.total_events.toLocaleString());
@@ -413,55 +1038,46 @@
         setText("runElapsed", formatElapsed(statusData.elapsed_seconds));
       }
 
-      // Get live data
       var res = await fetch("/data");
       var payload = await res.json();
 
-      // Status pill
       if (payload.monitoring_status === "running") {
         statusPill.textContent = "Live";
         statusPill.className = "pill ok";
       } else if (payload.monitoring_status === "paused") {
-        statusPill.textContent = "Paused";
+        statusPill.textContent = payload.fault && payload.fault.active ? "Fault Paused" : "Paused";
         statusPill.className = "pill warn";
       } else {
         statusPill.textContent = payload.monitoring_status;
         statusPill.className = "pill";
       }
 
-      // KPIs
+      if (payload.fault && payload.fault.active) {
+        showFaultOverlay(payload.fault);
+        document.getElementById("pauseBtn").style.display = "none";
+        document.getElementById("resumeBtn").style.display = "inline-flex";
+      }
+
       setText("kpiSkip", payload.metrics.skip);
       setText("kpiIdeal", payload.metrics.ideal);
       setText("kpiDouble", payload.metrics.double);
       setText("kpiOver", payload.metrics.overdrop);
 
-      // Tube table
-      if (tubeTable && payload.tubes) {
-        tubeTable.innerHTML = "";
-        Object.entries(payload.tubes).forEach(function(entry) {
-          var tube = entry[0];
-          var count = entry[1];
-          var b = bucketLabel(count);
-          var tr = document.createElement("tr");
-          tr.innerHTML =
-            "<td>Tube " + tube + "</td>" +
-            "<td>" + count + "</td>" +
-            '<td><span class="badge ' + b + '">' + b + "</span></td>";
-          tubeTable.appendChild(tr);
-        });
-      }
+      ingestRecentEvents(payload.events || []);
+      renderAlerts(payload.monitoring_status);
+      renderTubeTable(payload.tubes);
 
-      // Chart
       if (chart && payload.history) {
         drawHistory(chart, payload.history);
       }
 
-      // Per-tube bar chart (from cumulative analytics)
       if (tubeBarChart) {
         var analyticsRes = await fetch("/api/analytics");
         var analyticsData = await analyticsRes.json();
         drawTubeBarChart(tubeBarChart, analyticsData.per_tube);
       }
+
+      await loadLiveHeatmap();
 
     } catch (e) {
       statusPill.textContent = "Offline";
@@ -470,7 +1086,6 @@
     }
   }
 
-  // ──── Pause / Resume ────
   async function pauseRun() {
     await fetch("/api/control/pause", { method: "POST" });
     document.getElementById("pauseBtn").style.display = "none";
@@ -483,7 +1098,6 @@
     document.getElementById("pauseBtn").style.display = "inline-flex";
   }
 
-  // ──── End Run ────
   async function endRun() {
     if (!confirm("End this planting run? Results will be saved.")) return;
 
@@ -491,14 +1105,12 @@
     btn.disabled = true;
     btn.textContent = "Stopping...";
 
-    // Stop polling
     if (tickInterval) clearInterval(tickInterval);
 
     try {
       var res = await fetch("/api/run/stop", { method: "POST" });
 
       if (!res.ok) {
-        // Server returned an error status — try to extract message
         var errText = "";
         try {
           var errData = await res.json();
@@ -515,9 +1127,6 @@
       var summary = await res.json();
 
       if (summary.success) {
-        if (summary.db_error) {
-          console.warn("Run ended but DB save failed:", summary.db_error);
-        }
         showSummary(summary);
       } else {
         alert(summary.error || "Error stopping run.");
@@ -563,7 +1172,17 @@
     document.getElementById("summaryOverlay").style.display = "block";
   }
 
-  // ──── Init ────
+  window.addEventListener("resize", function() {
+    if (liveContent && liveContent.style.display !== "none") {
+      loadLiveHeatmap();
+      if (tubeBarChart) {
+        fetch("/api/analytics")
+          .then(function(res) { return res.json(); })
+          .then(function(data) { drawTubeBarChart(tubeBarChart, data.per_tube); });
+      }
+    }
+  });
+
   initPage();
 </script>
 {% endblock %}
